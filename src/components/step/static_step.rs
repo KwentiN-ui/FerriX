@@ -1,4 +1,4 @@
-use ccx_rs::Step;
+use crate::components::step::step_trait::Step;
 
 pub struct StaticStep;
 

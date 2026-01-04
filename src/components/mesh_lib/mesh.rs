@@ -18,6 +18,7 @@ impl Mesh {
         input_file: &str,
         sections: &Vec<InpSection>,
     ) -> Result<Self, Box<dyn Error>> {
+        let mut element_sets = Vec::new();
         let mut nodes: Option<Vec<Node>> = None;
         for sec in sections {
             match sec {
@@ -31,13 +32,13 @@ impl Mesh {
                     );
                 }
                 InpSection::Element(nr) => {
-                    // TODO
+                    element_sets.push(dbg!(ElementSet::from_string(input_file, *nr))?);
                 }
+
                 _ => {}
             }
         }
         // TODO
-        let element_sets = Vec::new();
         let mut node_hash: HashMap<usize, Node> = HashMap::new();
         for node in
             nodes.ok_or("The input file does not contain a *NODE card. Analysis is aborted.")?
