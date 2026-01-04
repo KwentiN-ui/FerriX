@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.5.54", features = ["derive"] }
-nom = "8.0.0"
 rayon = "1.11.0"
+thiserror = "2.0.17"
 
 [lints.rust]
 unused = "allow"
