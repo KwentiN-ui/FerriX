@@ -7,7 +7,13 @@ mod components;
 fn main() {
     let args = Args::parse();
 
-    let _project = Project::from_jobname(&args.jobname);
+    let project = Project::from_jobname(&args.jobname);
+    match project {
+        Ok(project) => {
+            println!("Ok!");
+        }
+        Err(e) => println!("{e}"),
+    }
 }
 
 pub struct StaticStep;

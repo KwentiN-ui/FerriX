@@ -27,12 +27,23 @@ impl Project {
 
     /// Attempts to parse an .inp file into a Project.
     pub fn from_str(string: &str) -> Result<Self, Box<dyn Error>> {
-        let sections = parse_sections_from_str(string)?;
-        println!("{sections:?}");
+        let sections = parse_sections_from_str(string);
+
+        let mesh = Mesh::from_sections(string, &sections);
+        for sec in &sections {
+            match sec {
+                InpSection::Element(nr) => {}
+                InpSection::Heading(nr) => {}
+                InpSection::Node(nr) => {
+                    // This is handled by the Mesh struct itself
+                }
+            }
+        }
+        println!("{mesh:?}");
         todo!()
     }
 }
-fn parse_sections_from_str(string: &str) -> Result<Vec<InpSection>, Box<dyn Error>> {
+fn parse_sections_from_str(string: &str) -> Vec<InpSection> {
     let mut sections: Vec<InpSection> = Vec::new();
     for (nr, line) in string.lines().enumerate() {
         // sanitize the line
@@ -47,22 +58,10 @@ fn parse_sections_from_str(string: &str) -> Result<Vec<InpSection>, Box<dyn Erro
             sections.push(InpSection::Heading(nr));
         }
     }
-    check_if_valid(sections)
+    sections
 }
 
-/// Checks the sections for obvious mistakes, like missing node definitions, etc...
-fn check_if_valid(sections: Vec<InpSection>) -> Result<Vec<InpSection>, Box<dyn Error>> {
-    // TODO: Should be expanded later
-    // Check if the sections contain a Node Card
-    if !sections
-        .iter()
-        .any(|sec| matches!(sec, InpSection::Node(_)))
-    {
-        return Err(Box::new(InpParsingError::MissingNodeDefinition));
-    }
-    Ok(sections)
-}
-
+/// removes leading and trailing whitespaces and makes everything allcaps
 fn sanitize_line(line: &str) -> String {
     line.trim()
         .chars()
@@ -82,7 +81,4 @@ pub enum InpSection {
 pub enum InpParsingError {
     #[error("Keyword {0} is unknown (Line {1})")]
     UnknownKeyword(String, u64),
-
-    #[error("The input file does not contain a *NODE Card. Analysis is aborted.")]
-    MissingNodeDefinition,
 }
