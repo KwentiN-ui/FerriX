@@ -1,4 +1,4 @@
-use crate::components::step::step_trait::Step;
+use crate::solver::step::step_trait::Step;
 
 pub struct StaticStep;
 

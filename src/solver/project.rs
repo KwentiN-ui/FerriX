@@ -1,12 +1,14 @@
+use ratatui::widgets::canvas::Line;
 use std::{
     collections::HashMap,
     error::Error,
+    fmt::Write,
     fs::{self, read_to_string},
     path::{Path, PathBuf},
 };
 use thiserror::Error;
 
-use crate::components::{
+use crate::solver::{
     mesh_lib::{
         elements::element::{Element, ElementType},
         mesh::Mesh,
@@ -22,17 +24,21 @@ pub struct Project {
 }
 
 impl Project {
-    pub fn print_info(&self) {
-        println!("--- Project Info ---");
-        println!("Jobname:");
-        println!("  {}", &self.jobname(),);
-        println!("Mesh:");
-        println!("  Nodes: {}", self.mesh.nodes.len());
-        println!("  Elements:");
+    pub fn print_info(&self) -> String {
+        let mut info = String::new();
+
+        let _ = writeln!(info, "--- Project Info ---");
+        let _ = writeln!(info, "Jobname:");
+        let _ = writeln!(info, "  {}", self.jobname());
+        let _ = writeln!(info, "Mesh:");
+        let _ = writeln!(info, "  Nodes: {}", self.mesh.nodes.len());
+        let _ = writeln!(info, "  Elements:");
 
         for (elem, count) in self.mesh.count_by_type() {
-            println!("  - {elem:?}: {count}");
+            let _ = writeln!(info, "  - {elem:?}: {count}");
         }
+
+        info
     }
 
     pub fn from_jobname(

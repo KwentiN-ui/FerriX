@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error};
 
-use crate::components::{
+use crate::solver::{
     mesh_lib::{
         elements::element::{Element, ElementType},
         node::Node,
