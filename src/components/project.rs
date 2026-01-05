@@ -1,10 +1,17 @@
 use std::{
+    collections::HashMap,
     error::Error,
     fs::{self, read_to_string},
 };
 use thiserror::Error;
 
-use crate::components::{mesh_lib::mesh::Mesh, step::step_trait::Step};
+use crate::components::{
+    mesh_lib::{
+        elements::element::{Element, ElementType},
+        mesh::Mesh,
+    },
+    step::step_trait::Step,
+};
 
 pub struct Project {
     pub mesh: Mesh,
@@ -12,6 +19,21 @@ pub struct Project {
 }
 
 impl Project {
+    pub fn print_info(&self) {
+        println!("--- Project Info ---");
+        println!("Mesh:");
+        println!("  Nodes: {}", self.mesh.nodes.len());
+        println!("  Elements:");
+
+        let mut elem_count: HashMap<ElementType, u32> = HashMap::new();
+        for elem in &self.mesh.elements {
+            let elem_type: ElementType = elem.into();
+            *elem_count.entry(elem_type).or_insert(0) += 1;
+        }
+        for (elem, count) in elem_count {
+            println!("  - {elem:?}: {count}");
+        }
+    }
     pub fn from_jobname(
         jobname: &str,
         preprocess_output: Option<&String>,

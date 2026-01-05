@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.54", features = ["derive"] }
 rayon = "1.11.0"
+strum = "0.27.2"
+strum_macros = "0.27.2"
 thiserror = "2.0.17"
 
 [lints.rust]

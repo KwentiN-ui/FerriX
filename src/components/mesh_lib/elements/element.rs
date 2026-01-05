@@ -1,7 +1,12 @@
 use std::error::Error;
 
+use strum_macros::EnumDiscriminants;
+
 /// <https://web.mit.edu/calculix_v2.7/CalculiX/ccx_2.7/doc/ccx/node194.html>
-#[derive(Debug)]
+/// strum automatically generates a String-enum based on these definitions.
+#[derive(EnumDiscriminants, Debug)]
+#[strum_discriminants(derive(Hash))]
+#[strum_discriminants(name(ElementType))]
 pub enum Element {
     // General 3D-Solids
     /// 4-node linear tetrahedral element
@@ -22,10 +27,10 @@ impl Element {
             .split(',')
             .map(str::trim)
             .nth(1)
-            .ok_or("Invalid Element definition on line {line_nr}")?
+            .ok_or("Invalid element definition on line {line_nr}")?
             .split('=')
             .next_back()
-            .ok_or("Invalid Element definition on line {line_nr}")?
+            .ok_or("Invalid element definition on line {line_nr}")?
             .to_string())
     }
     /// Create an Element from a line. This function panics if it's not able to do so.
