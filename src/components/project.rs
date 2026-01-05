@@ -1,7 +1,6 @@
 use std::{
     error::Error,
     fs::{self, read_to_string},
-    path::Path,
 };
 use thiserror::Error;
 
@@ -37,7 +36,7 @@ impl Project {
     ) -> Result<Self, Box<dyn Error>> {
         let input = preprocess_inp(raw_input);
         if let Some(out) = preprocess_output {
-            fs::write(out, &input);
+            fs::write(out, &input)?;
         }
         let sections = parse_sections_from_str(&input);
 

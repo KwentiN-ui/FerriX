@@ -1,7 +1,7 @@
 use std::{collections::HashMap, error::Error};
 
 use crate::components::{
-    mesh_lib::{element_set::ElementSet, node::Node},
+    mesh_lib::{elements::element::Element, node::Node},
     project::{InpParsingError, InpSection},
 };
 
@@ -9,7 +9,7 @@ use crate::components::{
 #[derive(Debug)]
 pub struct Mesh {
     pub nodes: HashMap<usize, Node>,
-    pub element_sets: Vec<ElementSet>,
+    pub elements: Vec<Element>,
 }
 
 impl Mesh {
@@ -18,7 +18,7 @@ impl Mesh {
         input_file: &str,
         sections: &Vec<InpSection>,
     ) -> Result<Self, Box<dyn Error>> {
-        let mut element_sets = Vec::new();
+        let mut elements = Vec::new();
         let mut nodes: Option<Vec<Node>> = None;
         for sec in sections {
             match sec {
@@ -32,13 +32,29 @@ impl Mesh {
                     );
                 }
                 InpSection::Element(nr) => {
-                    element_sets.push(ElementSet::from_string(input_file, *nr)?);
+                    let elem_type = Element::parse_type_str_from_line(
+                        input_file
+                            .lines()
+                            .nth(*nr)
+                            .expect("The line number is outside the file, aborting"),
+                    )?;
+                    elements.extend(
+                        input_file
+                            .lines()
+                            .skip(nr + 1)
+                            .take_while(|line| {
+                                line.chars()
+                                    .nth(0)
+                                    .expect("There are no empty lines after preprocessing")
+                                    .is_numeric()
+                            })
+                            .map(|line| Element::parse_line(&elem_type, line)),
+                    );
                 }
 
                 _ => {}
             }
         }
-        // TODO
         let mut node_hash: HashMap<usize, Node> = HashMap::new();
         for node in
             nodes.ok_or("The input file does not contain a *NODE card. Analysis is aborted.")?
@@ -48,7 +64,7 @@ impl Mesh {
 
         Ok(Self {
             nodes: node_hash,
-            element_sets,
+            elements,
         })
     }
 }

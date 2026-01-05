@@ -17,6 +17,17 @@ pub enum Element {
 }
 
 impl Element {
+    pub fn parse_type_str_from_line(line: &str) -> Result<String, Box<dyn Error>> {
+        Ok(line
+            .split(',')
+            .map(str::trim)
+            .nth(1)
+            .ok_or("Invalid Element definition on line {line_nr}")?
+            .split('=')
+            .next_back()
+            .ok_or("Invalid Element definition on line {line_nr}")?
+            .to_string())
+    }
     /// Create an Element from a line. This function panics if it's not able to do so.
     pub fn parse_line(type_name: &str, line: &str) -> Self {
         let nums: Vec<usize> = line

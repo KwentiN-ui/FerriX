@@ -10,7 +10,7 @@ fn main() {
     let project = Project::from_jobname(&args.jobname, args.preprocessed_output.as_ref());
     match project {
         Ok(project) => {
-            println!("{:?}", project.mesh.element_sets);
+            println!("{:?}", project.mesh.elements);
         }
         Err(e) => eprintln!("{e}"),
     }
