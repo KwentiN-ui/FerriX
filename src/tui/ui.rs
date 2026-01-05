@@ -22,7 +22,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Mesh Preview ")
-                .title_bottom("Zoom - X/Y"),
+                .title_bottom("Zoom - X/Y, Cycle Up - U, Rotate - Up/Down/Left/Right"),
         )
         .marker(Marker::Braille) // Wichtig für hohe Auflösung!
         .x_bounds([-1.0, 1.0])
