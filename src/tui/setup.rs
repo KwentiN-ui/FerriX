@@ -8,6 +8,7 @@ use std::io;
 pub type Tui = Terminal<CrosstermBackend<std::io::Stdout>>;
 
 pub fn init() -> io::Result<Tui> {
+    color_eyre::install();
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;

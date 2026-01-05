@@ -15,7 +15,7 @@ use crate::solver::{
         elements::element::{Element, ElementType},
         mesh::Mesh,
     },
-    step::steps::Step,
+    step::{static_step::StaticStep, steps::Step},
 };
 
 /// This struct holds all relevant information from the `.inp` file
@@ -70,10 +70,14 @@ impl Project {
         let sections = parse_sections_from_str(&input);
 
         let mesh = Mesh::from_sections(&input, &sections)?;
+
+        // TODO: Steps
+        let mut steps = vec![Step::StaticStep];
+
         Ok(Self {
             filepath: path,
             mesh: mesh.into(),
-            steps: Vec::new(),
+            steps,
             input: input.into(),
         })
     }

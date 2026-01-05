@@ -1,3 +1,4 @@
+use ndarray::{Array2, array};
 use std::error::Error;
 use std::str::FromStr;
 
@@ -94,6 +95,92 @@ impl Element {
             Element::S8(_, n) => vec![Face::quad(n[0], n[1], n[2], n[3])],
         }
     }
+
+    pub fn get_id(&self) -> usize {
+        match self {
+            Element::C3D20(id, _)
+            | Element::C3D6(id, _)
+            | Element::C3D4(id, _)
+            | Element::S8(id, _) => *id,
+        }
+    }
+
+    /// Get global Node IDs
+    pub fn get_node_ids(&self) -> &[usize] {
+        match self {
+            Element::C3D4(_, n) => n,
+            Element::C3D6(_, n) => n,
+            Element::C3D20(_, n) => n,
+            Element::S8(_, n) => n,
+        }
+    }
+
+    pub fn integration_points(&self) -> Vec<GaussPoint> {
+        match self {
+            // C3D4: Tetraeder, 1-Punkt Integration (für lineare Elemente oft ausreichend aber steif)
+            // oder 4-Punkt. Hier: 1-Punkt (Schwerpunkt)
+            Element::C3D4(..) => vec![
+                GaussPoint {
+                    coords: [0.25, 0.25, 0.25],
+                    weight: 1.0 / 6.0,
+                }, // Volumen Tetraeder = 1/6
+            ],
+
+            // C3D20: Hexaeder Quadratic. Meist Reduced Integration (2x2x2 = 8 Punkte)
+            // oder Full (3x3x3 = 27). CalculiX C3D20R nutzt 8.
+            Element::C3D20(..) => {
+                // Beispiel für 2x2x2 Gauss-Legendre
+                let val = 1.0 / (3.0_f64).sqrt();
+                let w = 1.0;
+                let mut points = Vec::with_capacity(8);
+                for k in [-val, val] {
+                    for j in [-val, val] {
+                        for i in [-val, val] {
+                            points.push(GaussPoint {
+                                coords: [i, j, k],
+                                weight: w * w * w,
+                            });
+                        }
+                    }
+                }
+                points
+            }
+
+            // TODO: Implementation für Prismen und Shells
+            _ => todo!("This is not implement yet..."),
+        }
+    }
+
+    pub fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (Vec<f64>, Array2<f64>) {
+        match self {
+            Element::C3D4(..) => shape_func_c3d4(xi, eta, zeta),
+            _ => todo!("Shape functions missing"),
+        }
+    }
+}
+/// linear tetraeder:
+/// N1 = xi, N2 = eta, N3 = zeta, N4 = 1 - xi - eta - zeta
+/// TODO: Check Node order in Calculix
+/// Node 1=(1,0,0), 2=(0,1,0), 3=(0,0,1), 4=(0,0,0))
+fn shape_func_c3d4(xi: f64, eta: f64, zeta: f64) -> (Vec<f64>, Array2<f64>) {
+    // Formfunktionen
+    let n = vec![xi, eta, zeta, 1.0 - xi - eta - zeta];
+
+    // Ableitungen (konstant für lineares Element)
+    // Zeile 0: d/dxi, Zeile 1: d/deta, Zeile 2: d/dzeta
+    let dn = array![
+        [1.0, 0.0, 0.0, -1.0],
+        [0.0, 1.0, 0.0, -1.0],
+        [0.0, 0.0, 1.0, -1.0]
+    ];
+
+    (n, dn)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GaussPoint {
+    pub coords: [f64; 3], // xi, eta, zeta
+    pub weight: f64,
 }
 
 use std::cmp::{max, min};

@@ -32,17 +32,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mesh = app.project.mesh.clone();
     thread::spawn(move || {
         // Solver thread
-        // Example for sending a message:
-        // tx_solver
-        //     .send(AppEvent::SolverLog("Message".into()))
-        //     .unwrap();
         for (i, step_type) in steps.iter().enumerate() {
             match step_type {
-                Step::StaticStep(step) => {
+                Step::StaticStep => {
                     let mut step = StaticStep::new(input.clone(), mesh.clone());
                     let _ = tx_solver
                         .send(AppEvent::SolverLog(format!("--- Step {i}: StaticStep ---")));
-                    step.compute();
+                    step.compute(&tx_solver);
                 }
             }
         }

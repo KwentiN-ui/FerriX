@@ -18,7 +18,7 @@ use crate::solver::{
 #[derive(Debug, Clone)]
 pub struct Mesh {
     pub nodes: HashMap<usize, Node>,
-    pub elements: Vec<Element>,
+    pub elements: HashMap<usize, Element>,
     pub wireframe_lines: Vec<(Point3<f64>, Point3<f64>)>,
 }
 
@@ -75,9 +75,13 @@ impl Mesh {
             node_hash.insert(node.id, node);
         }
 
+        let mut elem_hash: HashMap<usize, Element> = HashMap::new();
+        for elem in elements {
+            elem_hash.insert(elem.get_id(), elem);
+        }
         let mut mesh = Self {
             nodes: node_hash,
-            elements,
+            elements: elem_hash,
             wireframe_lines: Vec::new(),
         };
         mesh.precompute_wireframe();
@@ -87,7 +91,7 @@ impl Mesh {
     /// Counts all elements by their respective type.
     pub fn count_by_type(&self) -> HashMap<ElementType, u32> {
         let mut elem_count: HashMap<ElementType, u32> = HashMap::new();
-        for elem in &self.elements {
+        for elem in self.elements.values() {
             let elem_type: ElementType = elem.into();
             *elem_count.entry(elem_type).or_insert(0) += 1;
         }
@@ -120,7 +124,7 @@ impl Mesh {
     pub fn precompute_wireframe(&mut self) {
         // Surface Extraction
         let mut face_counts: HashMap<Face, u8> = HashMap::new();
-        for elem in &self.elements {
+        for elem in self.elements.values() {
             for face in elem.get_faces() {
                 face_counts
                     .entry(face)

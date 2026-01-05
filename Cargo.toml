@@ -5,12 +5,15 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.5.54", features = ["derive"] }
+color-eyre = "0.6.5"
 crossterm = "0.29.0"
 glam = "0.30.9"
 itertools = "0.14.0"
 nalgebra = "0.34.1"
+ndarray = "0.17.1"
 ratatui = "0.30.0"
 rayon = "1.11.0"
+sprs = "0.11.4"
 strum = "0.27.2"
 strum_macros = "0.27.2"
 thiserror = "2.0.17"
@@ -21,3 +24,4 @@ unused = "allow"
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 collapsible_if = "allow"
+similar_names = "allow"
