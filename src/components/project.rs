@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     error::Error,
     fs::{self, read_to_string},
+    path::{Path, PathBuf},
 };
 use thiserror::Error;
 
@@ -14,6 +15,8 @@ use crate::components::{
 };
 
 pub struct Project {
+    /// The filepath to the .inp file.
+    pub filepath: PathBuf,
     pub mesh: Mesh,
     pub steps: Vec<Box<dyn Step>>,
 }
@@ -21,42 +24,35 @@ pub struct Project {
 impl Project {
     pub fn print_info(&self) {
         println!("--- Project Info ---");
+        println!("Jobname:");
+        println!("  {}", &self.jobname(),);
         println!("Mesh:");
         println!("  Nodes: {}", self.mesh.nodes.len());
         println!("  Elements:");
 
-        let mut elem_count: HashMap<ElementType, u32> = HashMap::new();
-        for elem in &self.mesh.elements {
-            let elem_type: ElementType = elem.into();
-            *elem_count.entry(elem_type).or_insert(0) += 1;
-        }
-        for (elem, count) in elem_count {
+        for (elem, count) in self.mesh.count_by_type() {
             println!("  - {elem:?}: {count}");
         }
     }
-    pub fn from_jobname(
-        jobname: &str,
-        preprocess_output: Option<&String>,
-    ) -> Result<Self, Box<dyn Error>> {
-        // check if the jobname already has a file extension
-        let path = if std::path::Path::new(jobname)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("inp"))
-        {
-            jobname.to_string()
-        } else {
-            jobname.to_string() + ".inp"
-        };
-        let content = read_to_string(path)?;
-        Self::from_str(&content, preprocess_output)
-    }
 
-    /// Attempts to parse an .inp file into a Project.
-    pub fn from_str(
-        raw_input: &str,
+    pub fn from_jobname(
+        jobname_filepath: &str,
         preprocess_output: Option<&String>,
     ) -> Result<Self, Box<dyn Error>> {
-        let input = preprocess_inp(raw_input);
+        let mut path = PathBuf::from(jobname_filepath);
+
+        // Appends .inp if not existing already
+        if !path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("inp"))
+        {
+            let mut s = path.into_os_string();
+            s.push(".inp");
+            path = PathBuf::from(s);
+        }
+
+        // read and process the input
+        let input = preprocess_inp(&read_to_string(&path)?);
         if let Some(out) = preprocess_output {
             fs::write(out, &input)?;
         }
@@ -64,9 +60,20 @@ impl Project {
 
         let mesh = Mesh::from_sections(&input, &sections)?;
         Ok(Self {
+            filepath: path,
             mesh,
             steps: Vec::new(),
         })
+    }
+
+    /// Gets the jobname from a filepath.
+    pub fn jobname(&self) -> String {
+        self.filepath
+            .file_stem()
+            .expect("The jobname could not be inferred by the given arguments.")
+            .to_str()
+            .expect("There is no reason why this should fail")
+            .to_string()
     }
 }
 

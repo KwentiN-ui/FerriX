@@ -1,11 +1,12 @@
 use std::error::Error;
+use std::str::FromStr;
 
-use strum_macros::EnumDiscriminants;
+use strum_macros::{EnumDiscriminants, EnumString};
 
 /// <https://web.mit.edu/calculix_v2.7/CalculiX/ccx_2.7/doc/ccx/node194.html>
 /// strum automatically generates a String-enum based on these definitions.
 #[derive(EnumDiscriminants, Debug)]
-#[strum_discriminants(derive(Hash))]
+#[strum_discriminants(derive(Hash, EnumString))]
 #[strum_discriminants(name(ElementType))]
 pub enum Element {
     // General 3D-Solids
@@ -37,44 +38,29 @@ impl Element {
     pub fn parse_line(type_name: &str, line: &str) -> Self {
         let nums: Vec<usize> = line
             .split(',')
-            .map(|s| {
-                s.trim()
-                    .parse()
-                    .expect("Could not convert {s} to an integer!")
-            })
+            .map(|s| s.trim().parse().expect("Integer conversion failed"))
             .collect();
 
-        // split ID and Nodes
-        let (&id, nodes) = nums
-            .split_first()
-            .expect("Empty lines not possible after preprocessing.");
+        let (&id, nodes) = nums.split_first().expect("Line empty");
 
-        match type_name {
-            "C3D4" => {
-                let arr: [usize; 4] = nodes
+        // String -> ElementType
+        let elem_type = ElementType::from_str(type_name)
+            .unwrap_or_else(|_| panic!("Unknown element definition: {type_name}"));
+
+        // Local Macro for array casting
+        macro_rules! to_arr {
+            ($n:expr) => {
+                nodes
                     .try_into()
-                    .expect("Wrong amount of elements for C3D4 definition!");
-                Element::C3D4(id, arr)
-            }
-            "C3D6" => {
-                let arr: [usize; 6] = nodes
-                    .try_into()
-                    .expect("Wrong amount of elements for C3D6 definition!");
-                Element::C3D6(id, arr)
-            }
-            "C3D20" => {
-                let arr: [usize; 20] = nodes
-                    .try_into()
-                    .expect("Wrong amount of elements for C3D20 definition!");
-                Element::C3D20(id, arr)
-            }
-            "S8" => {
-                let arr: [usize; 8] = nodes
-                    .try_into()
-                    .expect("Wrong amount of elements for S8 definition!");
-                Element::S8(id, arr)
-            }
-            _ => panic!("Unknown element definition: {type_name}"),
+                    .expect(concat!("Wrong node count for ", stringify!($n)))
+            };
+        }
+
+        match elem_type {
+            ElementType::C3D4 => Element::C3D4(id, to_arr!(C3D4)),
+            ElementType::C3D6 => Element::C3D6(id, to_arr!(C3D6)),
+            ElementType::C3D20 => Element::C3D20(id, to_arr!(C3D20)),
+            ElementType::S8 => Element::S8(id, to_arr!(S8)),
         }
     }
 }

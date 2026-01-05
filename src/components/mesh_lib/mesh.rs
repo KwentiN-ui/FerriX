@@ -1,7 +1,10 @@
 use std::{collections::HashMap, error::Error};
 
 use crate::components::{
-    mesh_lib::{elements::element::Element, node::Node},
+    mesh_lib::{
+        elements::element::{Element, ElementType},
+        node::Node,
+    },
     project::{InpParsingError, InpSection},
 };
 
@@ -66,5 +69,15 @@ impl Mesh {
             nodes: node_hash,
             elements,
         })
+    }
+
+    /// Counts all elements by their respective type.
+    pub fn count_by_type(&self) -> HashMap<ElementType, u32> {
+        let mut elem_count: HashMap<ElementType, u32> = HashMap::new();
+        for elem in &self.elements {
+            let elem_type: ElementType = elem.into();
+            *elem_count.entry(elem_type).or_insert(0) += 1;
+        }
+        elem_count
     }
 }
