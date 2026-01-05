@@ -100,6 +100,26 @@ fn parse_sections_from_str(file: &InpFile) -> Vec<InpSection> {
             sections.push(InpSection::Node(nr));
         } else if line.starts_with("*ELEMENT") {
             sections.push(InpSection::Element(nr));
+        } else if line.starts_with("*NSET") {
+            let name = line
+                .split(',')
+                .find(|part| part.trim().starts_with("NSET="))
+                .map(|part| {
+                    part.split('=')
+                        .nth(1)
+                        .unwrap_or("UNKNOWN")
+                        .trim()
+                        .to_string()
+                })
+                .unwrap_or_else(|| "UNKNOWN".to_string());
+
+            let is_generate = line
+                .chars()
+                .filter(|c| *c != ' ')
+                .collect::<String>()
+                .contains(",GENERATE");
+
+            sections.push(InpSection::Nset(nr, name, is_generate));
         }
     }
     sections
@@ -135,6 +155,8 @@ fn preprocess_inp(input_file: &str) -> String {
 pub enum InpSection {
     Node(usize),
     Element(usize),
+    /// Stores: LineNumber, Name, is_generate
+    Nset(usize, String, bool),
 }
 
 #[derive(Error, Debug)]

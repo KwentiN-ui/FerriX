@@ -32,46 +32,117 @@ impl StaticStep {
         Self { input, mesh }
     }
 
-    pub fn parse_loads(&self) -> Vec<Load> {
-        // TODO: this is a test!
-        let min_id = self.mesh.nodes.keys().min().copied().unwrap_or(1);
-        let max_id = self.mesh.nodes.keys().max().copied().unwrap_or(1);
-
-        vec![Load {
-            node_id: max_id,
-            dof: 0,
-            value: 1000.0,
-        }]
-    }
-    pub fn parse_bcs(&self) -> Vec<BoundaryCondition> {
-        // TODO: this is a test!
-        let fixed_nodes: Vec<usize> = self
-            .mesh
-            .nodes
-            .values()
-            .filter(|n| n.x.abs() < 1e-5)
-            .map(|n| n.id)
-            .collect();
-
-        let mut bcs = Vec::new();
-        for id in fixed_nodes {
-            // "Festgeschweißt": Alles 0
-            bcs.push(BoundaryCondition {
-                node_id: id,
-                dof: 0,
-                value: 0.0,
-            });
-            bcs.push(BoundaryCondition {
-                node_id: id,
-                dof: 1,
-                value: 0.0,
-            });
-            bcs.push(BoundaryCondition {
-                node_id: id,
-                dof: 2,
-                value: 0.0,
-            });
+    /// Helper: Resolves a string (Set Name or ID) to a list of Node IDs
+    fn resolve_target(&self, target: &str) -> Vec<usize> {
+        let t = target.trim();
+        // Check Node Sets
+        if let Some(ids) = self.mesh.node_sets.get(t) {
+            return ids.clone();
         }
+        // Try explicit Node ID
+        if let Ok(id) = t.parse::<usize>() {
+            return vec![id];
+        }
+        // Not found
+        Vec::new()
+    }
+
+    pub fn parse_loads(&self) -> Vec<Load> {
+        let mut loads = Vec::new();
+        let mut lines = self.input.0.lines().peekable();
+
+        while let Some(line) = lines.next() {
+            let trimmed = line.trim();
+
+            if trimmed.starts_with("*CLOAD") {
+                // Read data lines until next keyword
+                while let Some(next_line) = lines.peek() {
+                    let data = next_line.trim();
+                    if data.starts_with('*') {
+                        break;
+                    }
+
+                    // Format: Node/Set, DOF, Value
+                    let parts: Vec<&str> = data.split(',').collect();
+                    if parts.len() >= 3 {
+                        let target_nodes = self.resolve_target(parts[0]);
+                        let dof_in: usize = parts[1].trim().parse().unwrap_or(0);
+                        let val: f64 = parts[2].trim().parse().unwrap_or(0.0);
+
+                        // DOF: Inp 1,2,3 -> Internal 0,1,2
+                        if (1..=3).contains(&dof_in) {
+                            for node_id in target_nodes {
+                                loads.push(Load {
+                                    node_id,
+                                    dof: dof_in - 1,
+                                    value: val,
+                                });
+                            }
+                        }
+                    }
+
+                    lines.next(); // Consume line
+                }
+            }
+        }
+
+        loads
+    }
+
+    pub fn parse_bcs(&self) -> Vec<BoundaryCondition> {
+        let mut bcs = Vec::new();
+        let mut lines = self.input.0.lines().peekable();
+
+        while let Some(line) = lines.next() {
+            let trimmed = line.trim();
+
+            if trimmed.starts_with("*BOUNDARY") {
+                // Read data lines
+                while let Some(next_line) = lines.peek() {
+                    let data = next_line.trim();
+                    if data.starts_with('*') {
+                        break;
+                    }
+
+                    // Format: Node/Set, FirstDOF, [LastDOF], [Value]
+                    let parts: Vec<&str> = data.split(',').collect();
+                    if parts.len() >= 2 {
+                        let target_nodes = self.resolve_target(parts[0]);
+
+                        let first_dof: usize = parts[1].trim().parse().unwrap_or(0);
+                        // If LastDOF is missing, default to FirstDOF
+                        let last_dof: usize = if parts.len() > 2 && !parts[2].trim().is_empty() {
+                            parts[2].trim().parse().unwrap_or(first_dof)
+                        } else {
+                            first_dof
+                        };
+
+                        // If Value is missing, default to 0.0 (Standard fixation)
+                        let val: f64 = if parts.len() > 3 {
+                            parts[3].trim().parse().unwrap_or(0.0)
+                        } else {
+                            0.0
+                        };
+
+                        for node_id in target_nodes {
+                            // Loop over DOFs (e.g. 1 to 3 => x, y, z)
+                            for dof_in in first_dof..=last_dof {
+                                if (1..=3).contains(&dof_in) {
+                                    bcs.push(BoundaryCondition {
+                                        node_id,
+                                        dof: dof_in - 1,
+                                        value: val,
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    lines.next();
+                }
+            }
+        }
+
         bcs
     }
 

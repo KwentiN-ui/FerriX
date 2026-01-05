@@ -20,6 +20,7 @@ pub struct Mesh {
     pub nodes: HashMap<usize, Node>,
     pub elements: HashMap<usize, Element>,
     pub wireframe_lines: Vec<(Point3<f64>, Point3<f64>)>,
+    pub node_sets: HashMap<String, Vec<usize>>,
 
     /// Map: Node-ID (from INP) -> Matrix-Index (0..N)
     pub node_id_to_index: HashMap<usize, usize>,
@@ -35,6 +36,7 @@ impl Mesh {
             wireframe_lines: Vec::new(),
             node_id_to_index: HashMap::new(),
             index_to_node_id: Vec::new(),
+            node_sets: HashMap::new(),
         }
     }
     pub fn from_sections(
@@ -43,6 +45,8 @@ impl Mesh {
     ) -> Result<Self, Box<dyn Error>> {
         let mut elements = Vec::new();
         let mut nodes: Option<Vec<Node>> = None;
+        let mut node_sets: HashMap<String, Vec<usize>> = HashMap::new();
+
         for sec in sections {
             match sec {
                 InpSection::Node(nr) => {
@@ -61,7 +65,7 @@ impl Mesh {
                             .0
                             .lines()
                             .nth(*nr)
-                            .expect("The line number is outside the file, aborting"),
+                            .expect("Line number outside file"),
                     )?;
                     elements.extend(
                         input_file
@@ -69,22 +73,64 @@ impl Mesh {
                             .lines()
                             .skip(nr + 1)
                             .take_while(|line| {
-                                line.chars()
-                                    .nth(0)
-                                    .expect("There are no empty lines after preprocessing")
-                                    .is_numeric()
+                                line.chars().nth(0).expect("No empty lines").is_numeric()
                             })
                             .map(|line| Element::parse_line(&elem_type, line)),
                     );
+                }
+                // Parse Node Sets
+                // Assumes InpSection::Nset(line_index, name, is_generate)
+                InpSection::Nset(nr, name, is_generate) => {
+                    let mut ids = Vec::new();
+
+                    // Read lines until next keyword (*)
+                    let data_lines = input_file
+                        .0
+                        .lines()
+                        .skip(nr + 1)
+                        .take_while(|line| !line.trim().starts_with('*'));
+
+                    if *is_generate {
+                        // Format: Start, End, Increment
+                        for line in data_lines {
+                            let nums: Vec<usize> = line
+                                .split(',')
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                                .filter_map(|s| s.parse().ok())
+                                .collect();
+
+                            if nums.len() >= 2 {
+                                // At least Start, End
+                                let start = nums[0];
+                                let end = nums[1];
+                                let step = *nums.get(2).unwrap_or(&1); // Default step 1
+
+                                for id in (start..=end).step_by(step) {
+                                    ids.push(id);
+                                }
+                            }
+                        }
+                    } else {
+                        // Explicit List: 1, 2, 3, 4...
+                        for line in data_lines {
+                            let line_ids = line
+                                .split(',')
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                                .filter_map(|s| s.parse::<usize>().ok());
+                            ids.extend(line_ids);
+                        }
+                    }
+                    node_sets.insert(name.clone(), ids);
                 }
 
                 _ => {}
             }
         }
+
         let mut node_hash: HashMap<usize, Node> = HashMap::new();
-        for node in
-            nodes.ok_or("The input file does not contain a *NODE card. Analysis is aborted.")?
-        {
+        for node in nodes.ok_or("Input file missing *NODE card.")? {
             node_hash.insert(node.id, node);
         }
 
@@ -93,17 +139,17 @@ impl Mesh {
             elem_hash.insert(elem.get_id(), elem);
         }
 
+        // 3. Construct Mesh with populated sets
         let mut mesh = Self {
             nodes: node_hash,
             elements: elem_hash,
+            node_sets, // Pass the filled map
             wireframe_lines: Vec::new(),
             node_id_to_index: HashMap::new(),
             index_to_node_id: Vec::new(),
         };
 
-        // needed in the mesh preview window
         mesh.precompute_wireframe();
-
         mesh.build_node_mappings();
 
         Ok(mesh)
@@ -127,6 +173,26 @@ impl Mesh {
     /// Fetches the matrix-index for a given Node-ID (from INP file)
     pub fn get_index_for_node_id(&self, id: usize) -> Option<usize> {
         self.node_id_to_index.get(&id).copied()
+    }
+
+    /// Resolves a string (from *BOUNDARY) to a list of Node IDs.
+    /// The string can be a direct number ("105") or a Set Name ("FIXPOINTS").
+    pub fn resolve_node_ids(&self, identifier: &str) -> Vec<usize> {
+        let identifier = identifier.trim();
+
+        // 1. Try to find a Node Set with this name
+        if let Some(set_ids) = self.node_sets.get(identifier) {
+            return set_ids.clone();
+        }
+
+        // 2. Try to parse as single Node ID
+        if let Ok(id) = identifier.parse::<usize>() {
+            // Optional: Check if node exists? For now just return it.
+            return vec![id];
+        }
+
+        // 3. Not found
+        Vec::new()
     }
 
     /// Counts all elements by their respective type.
