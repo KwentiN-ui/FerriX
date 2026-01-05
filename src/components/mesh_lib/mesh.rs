@@ -8,8 +8,8 @@ use crate::components::{
 /// Contains all Node and Element Data
 #[derive(Debug)]
 pub struct Mesh {
-    nodes: HashMap<usize, Node>,
-    element_sets: Vec<ElementSet>,
+    pub nodes: HashMap<usize, Node>,
+    pub element_sets: Vec<ElementSet>,
 }
 
 impl Mesh {

@@ -23,12 +23,12 @@ impl ElementSet {
             .ok_or("Invalid Element definition on line {line_nr}")?
             .to_string();
 
-        let elements = Vec::new();
-        // let elements = string
-        //     .lines()
-        //     .skip(line_nr + 1)
-        //     .take_while(|line| line.chars().nth(0).unwrap().is_numeric())
-        //     .collect();
+        let elements = string
+            .lines()
+            .skip(line_nr + 1)
+            .take_while(|line| line.chars().nth(0).unwrap().is_numeric())
+            .map(|line| Element::parse_line(&elem_type, line))
+            .collect();
         Ok(Self {
             elem_type,
             elements,

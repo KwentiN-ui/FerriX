@@ -8,14 +8,14 @@ use thiserror::Error;
 use crate::components::{mesh_lib::mesh::Mesh, step::step_trait::Step};
 
 pub struct Project {
-    mesh: Mesh,
-    steps: Vec<Box<dyn Step>>,
+    pub mesh: Mesh,
+    pub steps: Vec<Box<dyn Step>>,
 }
 
 impl Project {
     pub fn from_jobname(
         jobname: &str,
-        preprocess_output: &Option<String>,
+        preprocess_output: Option<&String>,
     ) -> Result<Self, Box<dyn Error>> {
         // check if the jobname already has a file extension
         let path = if std::path::Path::new(jobname)
@@ -33,7 +33,7 @@ impl Project {
     /// Attempts to parse an .inp file into a Project.
     pub fn from_str(
         raw_input: &str,
-        preprocess_output: &Option<String>,
+        preprocess_output: Option<&String>,
     ) -> Result<Self, Box<dyn Error>> {
         let input = preprocess_inp(raw_input);
         if let Some(out) = preprocess_output {
@@ -41,8 +41,11 @@ impl Project {
         }
         let sections = parse_sections_from_str(&input);
 
-        let mesh = Mesh::from_sections(&input, &sections);
-        todo!()
+        let mesh = Mesh::from_sections(&input, &sections)?;
+        Ok(Self {
+            mesh,
+            steps: Vec::new(),
+        })
     }
 }
 

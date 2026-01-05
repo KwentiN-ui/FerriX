@@ -7,10 +7,10 @@ mod components;
 fn main() {
     let args = Args::parse();
 
-    let project = Project::from_jobname(&args.jobname, &args.preprocessed_output);
+    let project = Project::from_jobname(&args.jobname, args.preprocessed_output.as_ref());
     match project {
         Ok(project) => {
-            println!("Ok!");
+            println!("{:?}", project.mesh.element_sets);
         }
         Err(e) => eprintln!("{e}"),
     }
