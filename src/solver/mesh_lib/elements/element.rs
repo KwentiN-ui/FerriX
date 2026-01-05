@@ -5,7 +5,7 @@ use std::str::FromStr;
 use strum_macros::{EnumDiscriminants, EnumString};
 
 /// <https://web.mit.edu/calculix_v2.7/CalculiX/ccx_2.7/doc/ccx/node194.html>
-/// strum automatically generates a String-enum based on these definitions.
+/// strum automatically generates a String-enum `ElementType` based on these definitions.
 #[derive(EnumDiscriminants, Debug, Clone)]
 #[strum_discriminants(derive(Hash, EnumString))]
 #[strum_discriminants(name(ElementType))]
@@ -117,36 +117,8 @@ impl Element {
 
     pub fn integration_points(&self) -> Vec<GaussPoint> {
         match self {
-            // C3D4: Tetraeder, 1-Punkt Integration (für lineare Elemente oft ausreichend aber steif)
-            // oder 4-Punkt. Hier: 1-Punkt (Schwerpunkt)
-            Element::C3D4(..) => vec![
-                GaussPoint {
-                    coords: [0.25, 0.25, 0.25],
-                    weight: 1.0 / 6.0,
-                }, // Volumen Tetraeder = 1/6
-            ],
-
-            // C3D20: Hexaeder Quadratic. Meist Reduced Integration (2x2x2 = 8 Punkte)
-            // oder Full (3x3x3 = 27). CalculiX C3D20R nutzt 8.
-            Element::C3D20(..) => {
-                // Beispiel für 2x2x2 Gauss-Legendre
-                let val = 1.0 / (3.0_f64).sqrt();
-                let w = 1.0;
-                let mut points = Vec::with_capacity(8);
-                for k in [-val, val] {
-                    for j in [-val, val] {
-                        for i in [-val, val] {
-                            points.push(GaussPoint {
-                                coords: [i, j, k],
-                                weight: w * w * w,
-                            });
-                        }
-                    }
-                }
-                points
-            }
-
-            // TODO: Implementation für Prismen und Shells
+            Element::C3D4(..) => c3d4_gauss(),
+            Element::C3D20(..) => c3d20_gauss(),
             _ => todo!("This is not implement yet..."),
         }
     }
@@ -154,38 +126,10 @@ impl Element {
     pub fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (Vec<f64>, Array2<f64>) {
         match self {
             Element::C3D4(..) => shape_func_c3d4(xi, eta, zeta),
+            Element::C3D20(..) => shape_func_c3d20(xi, eta, zeta),
             _ => todo!("Shape functions missing"),
         }
     }
-}
-
-/// linear tetraeder
-fn shape_func_c3d4(xi: f64, eta: f64, zeta: f64) -> (Vec<f64>, Array2<f64>) {
-    // Shape functions (CalculiX Convention: Node 1 is Origin)
-    // N1 = 1 - xi - eta - zeta
-    // N2 = xi
-    // N3 = eta
-    // N4 = zeta
-    let n = vec![
-        1.0 - xi - eta - zeta, // Node 1
-        xi,                    // Node 2
-        eta,                   // Node 3
-        zeta,                  // Node 4
-    ];
-
-    // Derivatives
-    // Row 0: d/dxi
-    // Row 1: d/deta
-    // Row 2: d/dzeta
-    //
-    // cols are nodes 1, 2, 3, 4
-    let dn = array![
-        [-1.0, 1.0, 0.0, 0.0], // d/dxi:  N1=-1, N2=1
-        [-1.0, 0.0, 1.0, 0.0], // d/deta: N1=-1, N3=1
-        [-1.0, 0.0, 0.0, 1.0]  // d/dzeta: N1=-1, N4=1
-    ];
-
-    (n, dn)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -195,6 +139,11 @@ pub struct GaussPoint {
 }
 
 use std::cmp::{max, min};
+
+use crate::solver::mesh_lib::elements::{
+    c3d4::{c3d4_gauss, shape_func_c3d4},
+    c3d20::{c3d20_gauss, shape_func_c3d20},
+};
 
 // Helper for Drawing the Mesh
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
