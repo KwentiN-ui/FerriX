@@ -1,3 +1,4 @@
+use nalgebra::Point3;
 use ratatui::{
     prelude::*,
     symbols::Marker,
@@ -20,11 +21,12 @@ pub fn draw(f: &mut Frame, app: &App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Mesh Preview "),
+                .title(" Mesh Preview ")
+                .title_bottom("Zoom - X/Y"),
         )
         .marker(Marker::Braille) // Wichtig für hohe Auflösung!
-        .x_bounds([-10.0, 110.0])
-        .y_bounds([-10.0, 110.0])
+        .x_bounds([-1.0, 1.0])
+        .y_bounds([-1.0, 1.0])
         .paint(|ctx| {
             draw_mesh(ctx, app);
         });
@@ -51,24 +53,28 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 fn draw_mesh(ctx: &mut Context, app: &App) {
     if let Some(project) = &app.project {
+        // Calculate MVP matrix once per frame
+        let mvp = app.camera.build_view_projection_matrix();
+
         let points: Vec<(f64, f64)> = project
             .mesh
             .nodes
             .iter()
-            .map(|node| project_iso(node.1.x, node.1.y, node.1.z))
+            .filter_map(|node| {
+                let p_world = Point3::new(node.1.x, node.1.y, node.1.z);
+
+                // transform_point performs perspective division automatically
+                let p_ndc = mvp.transform_point(&p_world);
+
+                // Frustum culling: check if point is within NDC bounds [-1.0, 1.0]
+                if p_ndc.x.abs() <= 1.0 && p_ndc.y.abs() <= 1.0 && p_ndc.z.abs() <= 1.0 {
+                    Some((p_ndc.x, p_ndc.y))
+                } else {
+                    None
+                }
+            })
             .collect();
 
         ctx.draw(&Points::new(&points, Color::White));
     }
-}
-
-#[allow(clippy::many_single_char_names)]
-pub fn project_iso(x: f64, y: f64, z: f64) -> (f64, f64) {
-    let cos30 = 0.866;
-    let sin30 = 0.5;
-
-    let u = (x - z) * cos30;
-    let v = y + (x + z) * sin30;
-
-    (u, v)
 }

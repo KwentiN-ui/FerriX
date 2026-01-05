@@ -1,5 +1,7 @@
 use std::{collections::HashMap, error::Error};
 
+use nalgebra::{Point3, center};
+
 use crate::solver::{
     mesh_lib::{
         elements::element::{Element, ElementType},
@@ -79,5 +81,27 @@ impl Mesh {
             *elem_count.entry(elem_type).or_insert(0) += 1;
         }
         elem_count
+    }
+
+    /// Compute the median Position of all points
+    pub fn get_center(&self) -> Point3<f64> {
+        if self.nodes.is_empty() {
+            return Point3::origin();
+        }
+
+        let init_min = Point3::new(f64::MAX, f64::MAX, f64::MAX);
+        let init_max = Point3::new(f64::MIN, f64::MIN, f64::MIN);
+
+        let (min, max) = self
+            .nodes
+            .iter()
+            .fold((init_min, init_max), |(min, max), (_, node)| {
+                (
+                    Point3::new(min.x.min(node.x), min.y.min(node.y), min.z.min(node.z)),
+                    Point3::new(max.x.max(node.x), max.y.max(node.y), max.z.max(node.z)),
+                )
+            });
+
+        center(&min, &max)
     }
 }

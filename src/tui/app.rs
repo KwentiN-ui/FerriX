@@ -13,15 +13,18 @@ pub struct App {
     pub jobname: String,
     pub logs: Vec<String>,
     pub project: Option<Project>,
+    pub camera: Camera,
 }
 
 impl App {
     pub fn new(jobname: String, project: Project) -> Self {
+        let center = project.mesh.get_center();
         Self {
             should_quit: false,
             jobname,
             logs: vec!["Ready.".into()],
             project: Some(project),
+            camera: Camera::new(center),
         }
     }
 
@@ -39,7 +42,48 @@ impl App {
         }
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
+            KeyCode::Char('y') => self.camera.move_back(),
+            KeyCode::Char('x') => self.camera.move_in(),
             _ => {}
         }
+    }
+}
+
+use nalgebra::{Isometry3, Matrix4, Perspective3, Point3, Vector3};
+#[derive(Debug, Default)]
+pub struct Camera {
+    pub pos: Point3<f64>,
+    pub target: Point3<f64>,
+    pub up: Vector3<f64>,
+    pub aspect: f64,
+    /// FOV in rad
+    pub fov: f64,
+}
+
+impl Camera {
+    pub fn new(center: Point3<f64>) -> Self {
+        Self {
+            pos: Point3::new(20.0, 20.0, 20.0),
+            target: center,
+            up: Vector3::y(),
+            aspect: 1.6,
+            fov: std::f64::consts::PI / 4.0,
+        }
+    }
+
+    pub fn move_back(&mut self) {
+        self.pos -= (self.target - self.pos) * 0.5;
+    }
+    pub fn move_in(&mut self) {
+        self.pos += (self.target - self.pos) * 0.5;
+    }
+
+    pub fn build_view_projection_matrix(&self) -> Matrix4<f64> {
+        // 1. View Matrix (World -> Camera)
+        let view = Isometry3::look_at_rh(&self.pos, &self.target, &self.up);
+
+        let projection = Perspective3::new(self.aspect, self.fov, 0.1, 1000.0);
+
+        projection.as_matrix() * view.to_homogeneous()
     }
 }

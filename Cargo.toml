@@ -8,6 +8,7 @@ clap = { version = "4.5.54", features = ["derive"] }
 crossterm = "0.29.0"
 glam = "0.30.9"
 itertools = "0.14.0"
+nalgebra = "0.34.1"
 ratatui = "0.30.0"
 rayon = "1.11.0"
 strum = "0.27.2"
