@@ -64,7 +64,9 @@ impl ResultWriter for VtkWriter {
                     list_size += 5;
                 }
                 // Hier später C3D10, Hex8 etc. ergänzen
-                _ => {}
+                _ => {
+                    todo!()
+                }
             }
         }
 
@@ -78,15 +80,14 @@ impl ResultWriter for VtkWriter {
             writeln!(w, "{}", t)?;
         }
 
-        // --- POINT_DATA (Ergebnisse) ---
-        // Wenn wir Ergebnisse haben, schreiben wir sie
+        // --- POINT_DATA ---
         if !results.is_empty() {
             writeln!(w, "POINT_DATA {}", num_nodes)?;
 
             for step in results {
                 for field in &step.nodal_results {
                     if field.field_type == FieldType::Displacement {
-                        // Wir benennen das Feld inklusive Step-Nummer
+                        // Field naming
                         let field_name = format!("{}_Step{}", field.name, step.step_id);
 
                         writeln!(w, "VECTORS {} float", field_name)?;

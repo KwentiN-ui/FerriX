@@ -257,8 +257,7 @@ impl StaticStep {
             "Solution converged. Displacement Norm: {u_norm:.4e}"
         )));
 
-        let mut displacement_field =
-            NodalResult::new("Static_Displacement", FieldType::Displacement);
+        let mut displacement_field = NodalResult::new("U", FieldType::Displacement);
 
         for (matrix_idx, &node_id) in self.mesh.index_to_node_id.iter().enumerate() {
             let idx = matrix_idx * 3;
