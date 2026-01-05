@@ -28,7 +28,15 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    #[allow(clippy::match_wildcard_for_single_variants)]
+    pub fn new() -> Self {
+        Self {
+            nodes: HashMap::new(),
+            elements: HashMap::new(),
+            wireframe_lines: Vec::new(),
+            node_id_to_index: HashMap::new(),
+            index_to_node_id: Vec::new(),
+        }
+    }
     pub fn from_sections(
         input_file: &InpFile,
         sections: &Vec<InpSection>,
@@ -101,7 +109,7 @@ impl Mesh {
         Ok(mesh)
     }
 
-    fn build_node_mappings(&mut self) {
+    pub fn build_node_mappings(&mut self) {
         let mut sorted_ids: Vec<usize> = self.nodes.keys().copied().collect();
         sorted_ids.sort_unstable();
 
