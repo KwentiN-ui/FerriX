@@ -3,7 +3,7 @@ use std::{
     error::Error,
 };
 
-use nalgebra::{Point3, center};
+use nalgebra::{Point3, Unit, Vector3, center};
 
 use crate::solver::{
     mesh_lib::{
@@ -112,13 +112,12 @@ impl Mesh {
         center(&min, &max)
     }
 
+    /// This method creates a wireframe for hard edges of the model for the tui mesh preview window.
     pub fn precompute_wireframe(&mut self) {
+        // Surface Extraction
         let mut face_counts: HashMap<Face, u8> = HashMap::new();
-
-        // 1. Zähle Vorkommen aller Flächen
         for elem in &self.elements {
             for face in elem.get_faces() {
-                // Wir nutzen saturating_add, da uns alles >= 2 egal ist (es ist internal)
                 face_counts
                     .entry(face)
                     .and_modify(|c| *c = c.saturating_add(1))
@@ -126,36 +125,82 @@ impl Mesh {
             }
         }
 
-        // 2. Filtere nur Flächen mit Count == 1 (Außenhaut)
-        // 3. Sammle Kanten dieser Flächen in ein HashSet (zur Deduplizierung)
-        let mut unique_edges: HashSet<(usize, usize)> = HashSet::new();
+        // Map: Edge -> List of normals
+        // Edge Key is (min_id, max_id)
+        let mut edge_normals: HashMap<(usize, usize), Vec<Vector3<f64>>> = HashMap::new();
 
+        // iterate over external faces (Count == 1)
         for (face, count) in face_counts {
             if count == 1 {
-                let ids = match face {
-                    Face::Tri(n) => vec![(n[0], n[1]), (n[1], n[2]), (n[2], n[0])],
-                    Face::Quad(n) => vec![(n[0], n[1]), (n[1], n[2]), (n[2], n[3]), (n[3], n[0])],
-                };
+                if let Some(normal) = self.compute_face_normal(&face) {
+                    // get all edges of the face
+                    let ids = match face {
+                        Face::Tri(n) => vec![(n[0], n[1]), (n[1], n[2]), (n[2], n[0])],
+                        Face::Quad(n) => {
+                            vec![(n[0], n[1]), (n[1], n[2]), (n[2], n[3]), (n[3], n[0])]
+                        }
+                    };
 
-                for (a, b) in ids {
-                    // Sortiere Kanten-IDs (min, max), damit (1,2) == (2,1)
-                    let edge = if a < b { (a, b) } else { (b, a) };
-                    unique_edges.insert(edge);
+                    for (a, b) in ids {
+                        let edge_key = if a < b { (a, b) } else { (b, a) };
+                        // add face normal to edge
+                        edge_normals.entry(edge_key).or_default().push(*normal);
+                    }
                 }
             }
         }
 
-        // 4. Löse IDs in Koordinaten auf und speichere im Cache
-        self.wireframe_lines = unique_edges
+        // filter by angle
+        let threshold_deg = 30.0_f64;
+        let threshold_val = threshold_deg.to_radians().cos();
+
+        self.wireframe_lines = edge_normals
             .iter()
-            .filter_map(|(id_a, id_b)| {
-                let n_a = self.nodes.get(id_a)?;
-                let n_b = self.nodes.get(id_b)?;
-                Some((
-                    Point3::new(n_a.x, n_a.y, n_a.z),
-                    Point3::new(n_b.x, n_b.y, n_b.z),
-                ))
+            .filter_map(|((id_a, id_b), normals)| {
+                match normals.len() {
+                    1 => {
+                        // Outer Edge, draw always (open mesh)
+                        let n_a = self.nodes.get(id_a)?;
+                        let n_b = self.nodes.get(id_b)?;
+                        Some((Point3::from(n_a), Point3::from(n_b)))
+                    }
+                    2 => {
+                        let n1 = normals[0];
+                        let n2 = normals[1];
+                        let dot = n1.dot(&n2);
+
+                        if dot.abs() < threshold_val {
+                            let n_a = self.nodes.get(id_a)?;
+                            let n_b = self.nodes.get(id_b)?;
+                            Some((Point3::from(n_a), Point3::from(n_b)))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None, // Non-manifold, ignore
+                }
             })
             .collect();
+    }
+
+    fn compute_face_normal(&self, face: &Face) -> Option<Unit<Vector3<f64>>> {
+        let (i1, i2, i3) = match face {
+            Face::Tri(idx) => (idx[0], idx[1], idx[2]),
+            Face::Quad(idx) => (idx[0], idx[1], idx[2]), // Annahme: Planar, erste 3 Punkte reichen
+        };
+
+        let p1 = self.nodes.get(&i1)?;
+        let p2 = self.nodes.get(&i2)?;
+        let p3 = self.nodes.get(&i3)?;
+
+        let v1 = Point3::new(p1.x, p1.y, p1.z);
+        let v2 = Point3::new(p2.x, p2.y, p2.z);
+        let v3 = Point3::new(p3.x, p3.y, p3.z);
+
+        // Crossproduct: (p2 - p1) x (p3 - p1)
+        let edge1 = v2 - v1;
+        let edge2 = v3 - v1;
+
+        Unit::try_new(edge1.cross(&edge2), 1e-6)
     }
 }

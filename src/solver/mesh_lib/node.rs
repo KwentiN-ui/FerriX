@@ -1,3 +1,5 @@
+use nalgebra::Point3;
+
 #[derive(Debug)]
 pub struct Node {
     pub id: usize,
@@ -18,5 +20,11 @@ impl Node {
         let y = delimited.get(2)?.parse::<f64>().ok()?;
         let z = delimited.get(3)?.parse::<f64>().ok()?;
         Some(Self { id, x, y, z })
+    }
+}
+
+impl From<&Node> for Point3<f64> {
+    fn from(n: &Node) -> Self {
+        Point3::new(n.x, n.y, n.z)
     }
 }
