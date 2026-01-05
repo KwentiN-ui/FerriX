@@ -32,7 +32,7 @@ impl Mesh {
                     );
                 }
                 InpSection::Element(nr) => {
-                    element_sets.push(dbg!(ElementSet::from_string(input_file, *nr))?);
+                    element_sets.push(ElementSet::from_string(input_file, *nr)?);
                 }
 
                 _ => {}

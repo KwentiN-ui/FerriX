@@ -63,26 +63,24 @@ fn parse_sections_from_str(string: &str) -> Vec<InpSection> {
 /// - removing comments
 /// - making all text uppercase
 /// - merging lines that belong together (`,` at the end of line)
+/// - removes empty lines
 fn preprocess_inp(input_file: &str) -> String {
     input_file
         .lines()
         .map(str::trim)
-        .map(make_allcaps)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.chars().map(|c| c.to_uppercase().to_string()).collect())
         // merge lines that end with `,`
-        .map(|line| {
-            if !line.ends_with(",") {
-                line + "\n"
-            } else {
+        .map(|line: String| {
+            if line.ends_with(',') {
                 line + " "
+            } else {
+                line + "\n"
             }
         })
         // remove comments
         .filter(|line| !line.starts_with("**"))
         .collect()
-}
-
-fn make_allcaps(line: &str) -> String {
-    line.chars().map(|c| c.to_uppercase().to_string()).collect()
 }
 
 /// Different types of sections of the .inp file and their line-number

@@ -24,6 +24,11 @@ impl ElementSet {
             .to_string();
 
         let elements = Vec::new();
+        // let elements = string
+        //     .lines()
+        //     .skip(line_nr + 1)
+        //     .take_while(|line| line.chars().nth(0).unwrap().is_numeric())
+        //     .collect();
         Ok(Self {
             elem_type,
             elements,
