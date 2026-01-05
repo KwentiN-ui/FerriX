@@ -13,7 +13,7 @@ use crate::tui::app::App;
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(70), Constraint::Min(30)])
+        .constraints([Constraint::Percentage(50), Constraint::Min(50)])
         .split(f.area());
 
     // Mesh canvas
