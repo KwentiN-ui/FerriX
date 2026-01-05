@@ -31,13 +31,47 @@ impl StaticStep {
         Self { input, mesh }
     }
 
-    pub fn parse_loads(&self) -> &[Load] {
-        // TODO
-        &[]
+    pub fn parse_loads(&self) -> Vec<Load> {
+        // TODO: this is a test!
+        let min_id = self.mesh.nodes.keys().min().copied().unwrap_or(1);
+        let max_id = self.mesh.nodes.keys().max().copied().unwrap_or(1);
+
+        vec![Load {
+            node_id: max_id,
+            dof: 0,
+            value: 1000.0,
+        }]
     }
-    pub fn parse_bcs(&self) -> &[BoundaryCondition] {
-        // TODO
-        &[]
+    pub fn parse_bcs(&self) -> Vec<BoundaryCondition> {
+        // TODO: this is a test!
+        let fixed_nodes: Vec<usize> = self
+            .mesh
+            .nodes
+            .values()
+            .filter(|n| n.x.abs() < 1e-5)
+            .map(|n| n.id)
+            .collect();
+
+        let mut bcs = Vec::new();
+        for id in fixed_nodes {
+            // "Festgeschweißt": Alles 0
+            bcs.push(BoundaryCondition {
+                node_id: id,
+                dof: 0,
+                value: 0.0,
+            });
+            bcs.push(BoundaryCondition {
+                node_id: id,
+                dof: 1,
+                value: 0.0,
+            });
+            bcs.push(BoundaryCondition {
+                node_id: id,
+                dof: 2,
+                value: 0.0,
+            });
+        }
+        bcs
     }
 
     pub fn compute(&mut self, tx: &Sender<AppEvent>) -> Result<(), Box<dyn Error>> {
@@ -113,7 +147,7 @@ impl StaticStep {
         if max_diag_val == 0.0 {
             max_diag_val = 1.0;
         } // Fallback
-        let penalty = max_diag_val * 1.0e10;
+        let penalty = max_diag_val * 1.0e6;
 
         for bc in bcs {
             if let Some(idx) = self.mesh.get_index_for_node_id(bc.node_id) {
@@ -140,7 +174,7 @@ impl StaticStep {
         )));
 
         // Call solver
-        let u = solve_cg(&k_global, &f_global, 1e-8, 10000)?;
+        let u = solve_cg(&k_global, &f_global, 1e-8, 10000, tx)?;
 
         // Log result (e.g. displacement norm)
         let u_norm: f64 = u.iter().map(|x| x * x).sum::<f64>().sqrt();
@@ -287,7 +321,13 @@ fn invert_jacobian_3x3(m: &Array2<f64>) -> Result<(f64, Array2<f64>), ()> {
 /// Simple Conjugate Gradient Solver for sparse symmetric positive definite systems.
 /// Solves K * x = b
 #[allow(clippy::many_single_char_names)]
-fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<f64>, String> {
+fn solve_cg(
+    k: &CsMat<f64>,
+    b: &[f64],
+    tol: f64,
+    max_iter: usize,
+    tx: &Sender<AppEvent>,
+) -> Result<Vec<f64>, String> {
     let b_len = b.len();
     let mut x = vec![0.0; b_len]; // Initial guess x0 = 0
 
@@ -299,6 +339,7 @@ fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<
     let mut rs_old: f64 = r.iter().map(|v| v * v).sum();
 
     for i in 0..max_iter {
+        let _ = tx.send(AppEvent::SolverLog(format!("Iteration {i}")));
         if rs_old.sqrt() < tol {
             return Ok(x);
         }
@@ -332,6 +373,7 @@ fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<
         }
 
         rs_old = rs_new;
+        let _ = tx.send(AppEvent::SolverLog(format!("Residual: {rs_new}")));
     }
 
     Err(format!(

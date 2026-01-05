@@ -38,6 +38,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let log_items: Vec<ListItem> = app
         .logs
         .iter()
+        .rev()
         .map(|msg| ListItem::new(msg.as_str()))
         .collect();
 
