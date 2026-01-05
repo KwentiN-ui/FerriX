@@ -4,18 +4,19 @@ use std::{
     sync::{Arc, mpsc::Sender},
 };
 
-use ndarray::Array2;
+use ndarray::{Array2, ArrayView1};
 use sprs::{CsMat, TriMat};
 
 use crate::{
     solver::{
         inp::InpFile,
         mesh_lib::{elements::element::Element, mesh::Mesh},
+        step::boundary_conds::{BoundaryCondition, Load},
     },
     tui::app::AppEvent,
 };
 
-// hardcoded constants for now
+// hardcoded constants for now, will be replaced with material card
 const E_MOD: f64 = 210_000.0;
 const NU: f64 = 0.3;
 
@@ -30,50 +31,75 @@ impl StaticStep {
         Self { input, mesh }
     }
 
+    pub fn parse_loads(&self) -> &[Load] {
+        // TODO
+        &[]
+    }
+    pub fn parse_bcs(&self) -> &[BoundaryCondition] {
+        // TODO
+        &[]
+    }
+
     pub fn compute(&mut self, tx: &Sender<AppEvent>) -> Result<(), Box<dyn Error>> {
-        // 1. Dimensionen direkt aus dem fertigen Mapping holen
-        let num_nodes = self.mesh.index_to_node_id.len(); // Nutzen des Vectors
-
+        let loads = self.parse_loads();
+        let bcs = self.parse_bcs();
+        // 1. Setup
+        let num_nodes = self.mesh.index_to_node_id.len();
         if num_nodes == 0 {
-            return Err("Mesh hat keine Knoten oder Mappings wurden nicht initialisiert!".into());
+            return Err("Mesh empty or mappings not initialized".into());
         }
-
         let num_dofs = num_nodes * 3;
 
-        // Triplet Matrix initialisieren
         let mut triplet = TriMat::new((num_dofs, num_dofs));
-
-        // 2. Materialmatrix
         let d_matrix = build_elastic_d_matrix(E_MOD, NU);
 
-        // 3. Element-Loop
+        // Init Force Vector F
+        let mut f_global = vec![0.0; num_dofs];
+
+        // 2. Add loads to F
+        for load in loads {
+            if let Some(idx) = self.mesh.get_index_for_node_id(load.node_id) {
+                let global_dof = idx * 3 + load.dof;
+                if global_dof < num_dofs {
+                    f_global[global_dof] += load.value;
+                }
+            } else {
+                eprintln!("Warning: Load on unknown node {}", load.node_id);
+            }
+        }
+
+        // 3. Assemble stiffness matrix (Element Loop)
+        let mut max_diag_val: f64 = 0.0;
+
         for element in self.mesh.elements.values() {
             let k_el = self.compute_element_stiffness(&d_matrix, element)?;
             let node_ids = element.get_node_ids();
 
-            // 4. Assemblierung mit Lookup im Mesh
             for (local_node_i, &global_id_i) in node_ids.iter().enumerate() {
-                // Mapping: ID -> Index direkt aus dem Mesh
-                let global_index_i =
-                    self.mesh.get_index_for_node_id(global_id_i).ok_or(format!(
-                        "Node {global_id_i} not found in mapping (did build_node_mappings run?)"
-                    ))?;
+                let global_index_i = self
+                    .mesh
+                    .get_index_for_node_id(global_id_i)
+                    .ok_or(format!("Node {global_id_i} not found"))?;
 
                 for (local_node_j, &global_id_j) in node_ids.iter().enumerate() {
                     let global_index_j = self
                         .mesh
                         .get_index_for_node_id(global_id_j)
-                        .ok_or(format!("Node {global_id_j} not found in mapping"))?;
+                        .ok_or(format!("Node {global_id_j} not found"))?;
 
                     for dof_i in 0..3 {
                         for dof_j in 0..3 {
-                            let global_row = global_index_i * 3 + dof_i;
-                            let global_col = global_index_j * 3 + dof_j;
-
                             let val = k_el[[local_node_i * 3 + dof_i, local_node_j * 3 + dof_j]];
 
                             if val.abs() > 1e-12 {
-                                triplet.add_triplet(global_row, global_col, val);
+                                let row = global_index_i * 3 + dof_i;
+                                let col = global_index_j * 3 + dof_j;
+                                triplet.add_triplet(row, col, val);
+
+                                // Track max diagonal for penalty factor estimation
+                                if row == col {
+                                    max_diag_val = max_diag_val.max(val.abs());
+                                }
                             }
                         }
                     }
@@ -81,13 +107,45 @@ impl StaticStep {
             }
         }
 
+        // 4. Apply boundary conditions (Penalty Method)
+        // Add a large value to the diagonal in the triplet matrix.
+        // This is very efficient for sparse matrices.
+        if max_diag_val == 0.0 {
+            max_diag_val = 1.0;
+        } // Fallback
+        let penalty = max_diag_val * 1.0e10;
+
+        for bc in bcs {
+            if let Some(idx) = self.mesh.get_index_for_node_id(bc.node_id) {
+                let global_dof = idx * 3 + bc.dof;
+
+                if global_dof < num_dofs {
+                    // K_ii += alpha
+                    triplet.add_triplet(global_dof, global_dof, penalty);
+
+                    // F_i += alpha * u_bc
+                    f_global[global_dof] += penalty * bc.value;
+                }
+            }
+        }
+
+        // 5. Conversion & Solving
         let k_global: CsMat<f64> = triplet.to_csr();
 
         let _ = tx.send(AppEvent::SolverLog(format!(
-            "Matrix assembly complete.\nK: ({}, {}) with {} nonzero entries",
+            "System assembled. K: {}x{}, NNZ: {}. Solving...",
             k_global.rows(),
             k_global.cols(),
             k_global.nnz()
+        )));
+
+        // Call solver
+        let u = solve_cg(&k_global, &f_global, 1e-8, 10000)?;
+
+        // Log result (e.g. displacement norm)
+        let u_norm: f64 = u.iter().map(|x| x * x).sum::<f64>().sqrt();
+        let _ = tx.send(AppEvent::SolverLog(format!(
+            "Solution converged. Displacement Norm: {u_norm:.4e}"
         )));
 
         Ok(())
@@ -224,6 +282,61 @@ fn invert_jacobian_3x3(m: &Array2<f64>) -> Result<(f64, Array2<f64>), ()> {
     inv[[2, 2]] = (m[[0, 0]] * m[[1, 1]] - m[[1, 0]] * m[[0, 1]]) * inv_det;
 
     Ok((det, inv))
+}
+
+/// Simple Conjugate Gradient Solver for sparse symmetric positive definite systems.
+/// Solves K * x = b
+#[allow(clippy::many_single_char_names)]
+fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<f64>, String> {
+    let b_len = b.len();
+    let mut x = vec![0.0; b_len]; // Initial guess x0 = 0
+
+    // r = b - K * x0  (since x0=0 -> r=b)
+    let mut r = b.to_vec();
+    let mut p = r.clone();
+
+    // r_old = r^T * r
+    let mut rs_old: f64 = r.iter().map(|v| v * v).sum();
+
+    for i in 0..max_iter {
+        if rs_old.sqrt() < tol {
+            return Ok(x);
+        }
+
+        // Ap = K * p
+        let p_view = ArrayView1::from(&p);
+        let ap = (k * &p_view).to_vec();
+
+        // alpha = rs_old / (p^T * Ap)
+        let p_dot_ap: f64 = p.iter().zip(&ap).map(|(pi, api)| pi * api).sum();
+        if p_dot_ap.abs() < 1e-15 {
+            return Err("CG breakdown: denominator zero (matrix singular?)".to_string());
+        }
+        let alpha = rs_old / p_dot_ap;
+
+        // x = x + alpha * p
+        // r = r - alpha * Ap
+        for j in 0..b_len {
+            x[j] += alpha * p[j];
+            r[j] -= alpha * ap[j];
+        }
+
+        let rs_new: f64 = r.iter().map(|v| v * v).sum();
+
+        // beta = rs_new / rs_old
+        let beta = rs_new / rs_old;
+
+        // p = r + beta * p
+        for j in 0..b_len {
+            p[j] = r[j] + beta * p[j];
+        }
+
+        rs_old = rs_new;
+    }
+
+    Err(format!(
+        "CG solver did not converge after {max_iter} iterations"
+    ))
 }
 
 #[cfg(test)]
