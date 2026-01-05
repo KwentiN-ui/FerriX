@@ -20,6 +20,11 @@ pub struct Mesh {
     pub nodes: HashMap<usize, Node>,
     pub elements: HashMap<usize, Element>,
     pub wireframe_lines: Vec<(Point3<f64>, Point3<f64>)>,
+
+    /// Map: Node-ID (from INP) -> Matrix-Index (0..N)
+    pub node_id_to_index: HashMap<usize, usize>,
+    /// Map: Matrix-Index (0..N) -> Node-ID (from INP)
+    pub index_to_node_id: Vec<usize>,
 }
 
 impl Mesh {
@@ -79,13 +84,41 @@ impl Mesh {
         for elem in elements {
             elem_hash.insert(elem.get_id(), elem);
         }
+
         let mut mesh = Self {
             nodes: node_hash,
             elements: elem_hash,
             wireframe_lines: Vec::new(),
+            node_id_to_index: HashMap::new(),
+            index_to_node_id: Vec::new(),
         };
+
+        // needed in the mesh preview window
         mesh.precompute_wireframe();
+
+        mesh.build_node_mappings();
+
         Ok(mesh)
+    }
+
+    fn build_node_mappings(&mut self) {
+        let mut sorted_ids: Vec<usize> = self.nodes.keys().copied().collect();
+        sorted_ids.sort_unstable();
+
+        // Reverse Mapping (Index -> ID)
+        self.index_to_node_id.clone_from(&sorted_ids);
+
+        // Forward Mapping (ID -> Index)
+        self.node_id_to_index = sorted_ids
+            .into_iter()
+            .enumerate()
+            .map(|(idx, id)| (id, idx))
+            .collect();
+    }
+
+    /// Fetches the matrix-index for a given Node-ID (from INP file)
+    pub fn get_index_for_node_id(&self, id: usize) -> Option<usize> {
+        self.node_id_to_index.get(&id).copied()
     }
 
     /// Counts all elements by their respective type.

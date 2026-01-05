@@ -31,47 +31,42 @@ impl StaticStep {
     }
 
     pub fn compute(&mut self, tx: &Sender<AppEvent>) -> Result<(), Box<dyn Error>> {
-        let _ = tx.send(AppEvent::SolverLog(
-            "Assembling global stiffness matrix".to_string(),
-        ));
-        // DOF Management & Mapping
-        let mut sorted_node_ids: Vec<usize> = self.mesh.nodes.keys().copied().collect();
-        sorted_node_ids.sort_unstable();
+        // 1. Dimensionen direkt aus dem fertigen Mapping holen
+        let num_nodes = self.mesh.index_to_node_id.len(); // Nutzen des Vectors
 
-        // Map: NodeID (from inp) -> internal Index (0..N)
-        let node_mapping: HashMap<usize, usize> = sorted_node_ids
-            .iter()
-            .enumerate()
-            .map(|(idx, &id)| (id, idx))
-            .collect();
+        if num_nodes == 0 {
+            return Err("Mesh hat keine Knoten oder Mappings wurden nicht initialisiert!".into());
+        }
 
-        let num_nodes = sorted_node_ids.len();
         let num_dofs = num_nodes * 3;
 
+        // Triplet Matrix initialisieren
         let mut triplet = TriMat::new((num_dofs, num_dofs));
 
-        // material-matrix D
+        // 2. Materialmatrix
         let d_matrix = build_elastic_d_matrix(E_MOD, NU);
 
+        // 3. Element-Loop
         for element in self.mesh.elements.values() {
             let k_el = self.compute_element_stiffness(&d_matrix, element)?;
             let node_ids = element.get_node_ids();
 
-            // assembly
+            // 4. Assemblierung mit Lookup im Mesh
             for (local_node_i, &global_id_i) in node_ids.iter().enumerate() {
-                // Mapping: ID -> Index
-                let global_index_i = *node_mapping.get(&global_id_i).ok_or(format!(
-                    "Node {global_id_i} in element definition but not in node list"
-                ))?;
+                // Mapping: ID -> Index direkt aus dem Mesh
+                let global_index_i =
+                    self.mesh.get_index_for_node_id(global_id_i).ok_or(format!(
+                        "Node {global_id_i} not found in mapping (did build_node_mappings run?)"
+                    ))?;
 
                 for (local_node_j, &global_id_j) in node_ids.iter().enumerate() {
-                    let global_index_j = *node_mapping
-                        .get(&global_id_j)
-                        .ok_or(format!("Node {global_id_j} not found"))?;
+                    let global_index_j = self
+                        .mesh
+                        .get_index_for_node_id(global_id_j)
+                        .ok_or(format!("Node {global_id_j} not found in mapping"))?;
 
                     for dof_i in 0..3 {
                         for dof_j in 0..3 {
-                            // using 0-based mapped indezes
                             let global_row = global_index_i * 3 + dof_i;
                             let global_col = global_index_j * 3 + dof_j;
 
