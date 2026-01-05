@@ -4,8 +4,7 @@ use std::{sync::mpsc, thread, time::Duration};
 
 use crate::{
     solver::{
-        io::frd::FrdWriter,
-        io::writer::ResultWriter,
+        io::{frd::FrdWriter, vtk::VtkWriter, writer::ResultWriter},
         project::Project,
         results::StepResult,
         step::{static_step::StaticStep, steps::Step},
@@ -62,13 +61,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         // write results
         if !all_results.is_empty() {
-            let writer = FrdWriter;
-            let path = filepath.parent().unwrap().join("results.frd");
+            let writer = VtkWriter;
+            let path = filepath.parent().unwrap().join("results.vtk");
 
             // We use the mesh from the last step (assuming no remeshing)
             match writer.write(&path, &mesh.clone(), &all_results) {
                 Ok(()) => {
-                    let _ = tx_solver.send(AppEvent::SolverLog("Written results.frd".into()));
+                    let _ = tx_solver.send(AppEvent::SolverLog("Written results to disk".into()));
                 }
                 Err(e) => {
                     let _ = tx_solver.send(AppEvent::SolverLog(format!("Write error: {e}")));
