@@ -1,0 +1,53 @@
+use std::collections::HashMap;
+
+/// Types of fields we can store
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FieldType {
+    Displacement, // U
+    Stress,       // S
+    Strain,       // E
+}
+
+/// Holds values for one specific field (e.g. Displacements for all nodes)
+#[derive(Debug, Clone)]
+pub struct NodalResult {
+    pub name: String, // e.g. "DISP"
+    pub field_type: FieldType,
+    /// Maps Node ID -> Vector of values (e.g. [dx, dy, dz])
+    pub data: HashMap<usize, Vec<f64>>,
+}
+
+impl NodalResult {
+    pub fn new(name: &str, field_type: FieldType) -> Self {
+        Self {
+            name: name.to_string(),
+            field_type,
+            data: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, node_id: usize, values: Vec<f64>) {
+        self.data.insert(node_id, values);
+    }
+}
+
+/// Holds all results for a single step (e.g. "Step 1 - Static")
+#[derive(Debug, Clone)]
+pub struct StepResult {
+    pub step_id: usize,
+    pub step_name: String,
+    pub time_increment: f64,
+    pub nodal_results: Vec<NodalResult>,
+    // later: element_results (for integration point data like stress)
+}
+
+impl StepResult {
+    pub fn new(step_id: usize, name: &str, time: f64) -> Self {
+        Self {
+            step_id,
+            step_name: name.to_string(),
+            time_increment: time,
+            nodal_results: Vec::new(),
+        }
+    }
+}

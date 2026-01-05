@@ -11,6 +11,7 @@ use crate::{
     solver::{
         inp::InpFile,
         mesh_lib::{elements::element::Element, mesh::Mesh},
+        results::{FieldType, NodalResult, StepResult},
         step::boundary_conds::{BoundaryCondition, Load},
     },
     tui::app::AppEvent,
@@ -74,10 +75,13 @@ impl StaticStep {
         bcs
     }
 
-    pub fn compute(&mut self, tx: &Sender<AppEvent>) -> Result<(), Box<dyn Error>> {
+    pub fn compute(&mut self, tx: &Sender<AppEvent>) -> Result<StepResult, Box<dyn Error>> {
         let loads = self.parse_loads();
         let bcs = self.parse_bcs();
         // 1. Setup
+        let _ = tx.send(AppEvent::SolverLog(
+            "Constructing global stiffness matrix".to_string(),
+        ));
         let num_nodes = self.mesh.index_to_node_id.len();
         if num_nodes == 0 {
             return Err("Mesh empty or mappings not initialized".into());
@@ -182,7 +186,23 @@ impl StaticStep {
             "Solution converged. Displacement Norm: {u_norm:.4e}"
         )));
 
-        Ok(())
+        let mut displacement_field =
+            NodalResult::new("Static_Displacement", FieldType::Displacement);
+
+        for (matrix_idx, &node_id) in self.mesh.index_to_node_id.iter().enumerate() {
+            let idx = matrix_idx * 3;
+            if idx + 2 < u.len() {
+                let dx = u[idx];
+                let dy = u[idx + 1];
+                let dz = u[idx + 2];
+                displacement_field.insert(node_id, vec![dx, dy, dz]);
+            }
+        }
+
+        let mut step_res = StepResult::new(1, "Static Step", 1.0);
+        step_res.nodal_results.push(displacement_field);
+
+        Ok(step_res)
     }
 
     fn compute_element_stiffness(

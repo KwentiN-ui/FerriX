@@ -4,7 +4,10 @@ use std::{sync::mpsc, thread, time::Duration};
 
 use crate::{
     solver::{
+        io::frd::FrdWriter,
+        io::writer::ResultWriter,
         project::Project,
+        results::StepResult,
         step::{static_step::StaticStep, steps::Step},
     },
     tui::{
@@ -16,7 +19,6 @@ use crate::{
 mod solver;
 mod tui;
 
-#[allow(clippy::collapsible_if)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
@@ -27,9 +29,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tx_solver = tx.clone();
 
     let steps = app.project.steps.clone();
+    let filepath = app.project.filepath.clone();
     // clone is fine here, it's just the pointer
     let input = app.project.input.clone();
     let mesh = app.project.mesh.clone();
+
+    let mut all_results: Vec<StepResult> = Vec::new();
+
     thread::spawn(move || {
         // Solver thread
         for (i, step_type) in steps.iter().enumerate() {
@@ -38,7 +44,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let mut step = StaticStep::new(input.clone(), mesh.clone());
                     let _ = tx_solver
                         .send(AppEvent::SolverLog(format!("--- Step {i}: StaticStep ---")));
-                    step.compute(&tx_solver);
+                    match step.compute(&tx_solver) {
+                        Ok(res) => {
+                            all_results.push(res);
+                            let _ =
+                                tx_solver.send(AppEvent::SolverLog(format!("Step {i} completed.")));
+                        }
+                        Err(e) => {
+                            let _ = tx_solver.send(AppEvent::SolverLog(format!(
+                                "Error occured in Step {i}:\n{e}"
+                            )));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        // write results
+        if !all_results.is_empty() {
+            let writer = FrdWriter;
+            let path = filepath.parent().unwrap().join("results.frd");
+
+            // We use the mesh from the last step (assuming no remeshing)
+            match writer.write(&path, &mesh.clone(), &all_results) {
+                Ok(()) => {
+                    let _ = tx_solver.send(AppEvent::SolverLog("Written results.frd".into()));
+                }
+                Err(e) => {
+                    let _ = tx_solver.send(AppEvent::SolverLog(format!("Write error: {e}")));
                 }
             }
         }
