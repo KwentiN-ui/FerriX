@@ -1,4 +1,8 @@
-use std::{error::Error, fs::read_to_string, path::Path};
+use std::{
+    error::Error,
+    fs::{self, read_to_string},
+    path::Path,
+};
 use thiserror::Error;
 
 use crate::components::{mesh_lib::mesh::Mesh, step::step_trait::Step};
@@ -9,7 +13,10 @@ pub struct Project {
 }
 
 impl Project {
-    pub fn from_jobname(jobname: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn from_jobname(
+        jobname: &str,
+        preprocess_output: &Option<String>,
+    ) -> Result<Self, Box<dyn Error>> {
         // check if the jobname already has a file extension
         let path = if std::path::Path::new(jobname)
             .extension()
@@ -20,12 +27,18 @@ impl Project {
             jobname.to_string() + ".inp"
         };
         let content = read_to_string(path)?;
-        Self::from_str(&content)
+        Self::from_str(&content, preprocess_output)
     }
 
     /// Attempts to parse an .inp file into a Project.
-    pub fn from_str(raw_input: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn from_str(
+        raw_input: &str,
+        preprocess_output: &Option<String>,
+    ) -> Result<Self, Box<dyn Error>> {
         let input = preprocess_inp(raw_input);
+        if let Some(out) = preprocess_output {
+            fs::write(out, &input);
+        }
         let sections = parse_sections_from_str(&input);
 
         let mesh = Mesh::from_sections(&input, &sections);
@@ -36,11 +49,6 @@ impl Project {
 fn parse_sections_from_str(string: &str) -> Vec<InpSection> {
     let mut sections: Vec<InpSection> = Vec::new();
     for (nr, line) in string.lines().enumerate() {
-        // sanitize the line
-        if line.starts_with("**") {
-            // ignore comment
-            continue;
-        }
         if line == "*NODE" {
             sections.push(InpSection::Node(nr));
         } else if line.starts_with("*ELEMENT") {
@@ -50,13 +58,24 @@ fn parse_sections_from_str(string: &str) -> Vec<InpSection> {
     sections
 }
 
-/// Removes whitespaces and comments, and makes all text uppercase
+/// This preprocess includes:
+/// - removing leading and trailing whitespaces
+/// - removing comments
+/// - making all text uppercase
+/// - merging lines that belong together (`,` at the end of line)
 fn preprocess_inp(input_file: &str) -> String {
     input_file
         .lines()
         .map(str::trim)
         .map(make_allcaps)
-        .map(|line| line + "\n")
+        // merge lines that end with `,`
+        .map(|line| {
+            if !line.ends_with(",") {
+                line + "\n"
+            } else {
+                line + " "
+            }
+        })
         // remove comments
         .filter(|line| !line.starts_with("**"))
         .collect()
@@ -85,7 +104,10 @@ mod tests {
 
     #[test]
     fn test_preprocess_inp() {
-        let inp = "**comment\n word  \n \t*keyword\n123.4";
-        assert_eq!(preprocess_inp(inp), "WORD\n*KEYWORD\n123.4\n");
+        let inp = "**comment\n word  \n \t*keyword\n123.4\n4, 5, 6,\n7, 8, 9";
+        assert_eq!(
+            preprocess_inp(inp),
+            "WORD\n*KEYWORD\n123.4\n4, 5, 6, 7, 8, 9\n"
+        );
     }
 }

@@ -23,13 +23,7 @@ impl ElementSet {
             .ok_or("Invalid Element definition on line {line_nr}")?
             .to_string();
 
-        let mut elements = Vec::new();
-        // TODO, hier weitermachen!
-        // string
-        //     .lines()
-        //     .skip(line_nr + 1)
-        //     .take_while(|line| line.starts_with("*"))
-
+        let elements = Vec::new();
         Ok(Self {
             elem_type,
             elements,
