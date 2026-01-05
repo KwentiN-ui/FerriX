@@ -6,6 +6,7 @@ use std::{
 use nalgebra::{Point3, Unit, Vector3, center};
 
 use crate::solver::{
+    inp::InpFile,
     mesh_lib::{
         elements::element::{Element, ElementType, Face},
         node::Node,
@@ -14,7 +15,7 @@ use crate::solver::{
 };
 
 /// Contains all Node and Element Data
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Mesh {
     pub nodes: HashMap<usize, Node>,
     pub elements: Vec<Element>,
@@ -24,7 +25,7 @@ pub struct Mesh {
 impl Mesh {
     #[allow(clippy::match_wildcard_for_single_variants)]
     pub fn from_sections(
-        input_file: &str,
+        input_file: &InpFile,
         sections: &Vec<InpSection>,
     ) -> Result<Self, Box<dyn Error>> {
         let mut elements = Vec::new();
@@ -34,6 +35,7 @@ impl Mesh {
                 InpSection::Node(nr) => {
                     nodes = Some(
                         input_file
+                            .0
                             .lines()
                             .skip(*nr + 1)
                             .map_while(Node::parse_line)
@@ -43,12 +45,14 @@ impl Mesh {
                 InpSection::Element(nr) => {
                     let elem_type = Element::parse_type_str_from_line(
                         input_file
+                            .0
                             .lines()
                             .nth(*nr)
                             .expect("The line number is outside the file, aborting"),
                     )?;
                     elements.extend(
                         input_file
+                            .0
                             .lines()
                             .skip(nr + 1)
                             .take_while(|line| {

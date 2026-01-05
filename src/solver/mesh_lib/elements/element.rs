@@ -5,7 +5,7 @@ use strum_macros::{EnumDiscriminants, EnumString};
 
 /// <https://web.mit.edu/calculix_v2.7/CalculiX/ccx_2.7/doc/ccx/node194.html>
 /// strum automatically generates a String-enum based on these definitions.
-#[derive(EnumDiscriminants, Debug)]
+#[derive(EnumDiscriminants, Debug, Clone)]
 #[strum_discriminants(derive(Hash, EnumString))]
 #[strum_discriminants(name(ElementType))]
 pub enum Element {

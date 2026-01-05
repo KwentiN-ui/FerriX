@@ -5,25 +5,23 @@ use crate::solver::project::Project;
 pub enum AppEvent {
     Input(KeyEvent),
     SolverLog(String),
-    SolverFinished,
+    AnalysisFinished,
 }
 
 pub struct App {
     pub should_quit: bool,
-    pub jobname: String,
     pub logs: Vec<String>,
-    pub project: Option<Project>,
+    pub project: Project,
     pub camera: Camera,
 }
 
 impl App {
-    pub fn new(jobname: String, project: Project) -> Self {
+    pub fn new(project: Project) -> Self {
         let center = project.mesh.get_center();
         Self {
             should_quit: false,
-            jobname,
             logs: vec!["Ready.".into()],
-            project: Some(project),
+            project,
             camera: Camera::new(center),
         }
     }
@@ -32,7 +30,7 @@ impl App {
         match event {
             AppEvent::Input(key) => self.handle_key(key),
             AppEvent::SolverLog(msg) => self.logs.push(msg),
-            AppEvent::SolverFinished => self.logs.push("Done.".into()),
+            AppEvent::AnalysisFinished => self.logs.push("Analysis finished.".into()),
         }
     }
 

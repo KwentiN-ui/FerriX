@@ -3,7 +3,10 @@ use crossterm::event;
 use std::{sync::mpsc, thread, time::Duration};
 
 use crate::{
-    solver::project::Project,
+    solver::{
+        project::Project,
+        step::{static_step::StaticStep, steps::Step},
+    },
     tui::{
         app::{App, AppEvent},
         setup, ui,
@@ -17,20 +20,33 @@ mod tui;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let project = Project::from_jobname(&args.jobname, None)?;
-    let mut app = App::new(args.jobname.clone(), project);
+    let mut app = App::new(Project::from_jobname(&args.jobname, None)?);
 
     // Channel & Worker Thread
     let (tx, rx) = mpsc::channel();
     let tx_solver = tx.clone();
 
+    let steps = app.project.steps.clone();
+    // clone is fine here, it's just the pointer
+    let input = app.project.input.clone();
+    let mesh = app.project.mesh.clone();
     thread::spawn(move || {
-        // Solver
-        tx_solver
-            .send(AppEvent::SolverLog("Starting...".into()))
-            .unwrap();
-        thread::sleep(Duration::from_secs(2));
-        tx_solver.send(AppEvent::SolverFinished).unwrap();
+        // Solver thread
+        // Example for sending a message:
+        // tx_solver
+        //     .send(AppEvent::SolverLog("Message".into()))
+        //     .unwrap();
+        for (i, step_type) in steps.iter().enumerate() {
+            match step_type {
+                Step::StaticStep(step) => {
+                    let mut step = StaticStep::new(input.clone(), mesh.clone());
+                    let _ = tx_solver
+                        .send(AppEvent::SolverLog(format!("--- Step {i}: StaticStep ---")));
+                    step.compute();
+                }
+            }
+        }
+        tx_solver.send(AppEvent::AnalysisFinished).unwrap();
     });
 
     // TUI

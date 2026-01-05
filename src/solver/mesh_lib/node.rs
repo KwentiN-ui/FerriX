@@ -1,6 +1,6 @@
 use nalgebra::Point3;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node {
     pub id: usize,
     pub x: f64,

@@ -17,12 +17,13 @@ pub fn draw(f: &mut Frame, app: &App) {
         .split(f.area());
 
     // Mesh canvas
+    let jobname = app.project.jobname();
     let canvas = Canvas::default()
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Mesh Preview ")
-                .title_bottom("Zoom - X/Y, Cycle Up - U, Rotate - Up/Down/Left/Right"),
+                .title(format!(" Mesh Preview - {jobname} "))
+                .title_bottom(" Zoom - X/Y, Cycle Up - U, Rotate - Up/Down/Left/Right "),
         )
         .marker(Marker::Braille) // Wichtig für hohe Auflösung!
         .x_bounds([-1.0, 1.0])
@@ -52,23 +53,22 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_mesh(ctx: &mut Context, app: &App) {
-    if let Some(project) = &app.project {
-        let mvp = app.camera.build_view_projection_matrix();
+    let project = &app.project;
+    let mvp = app.camera.build_view_projection_matrix();
 
-        for (p_start, p_end) in &project.mesh.wireframe_lines {
-            let s_ndc = mvp.transform_point(p_start);
-            let e_ndc = mvp.transform_point(p_end);
+    for (p_start, p_end) in &project.mesh.wireframe_lines {
+        let s_ndc = mvp.transform_point(p_start);
+        let e_ndc = mvp.transform_point(p_end);
 
-            // Simple Culling Check
-            if s_ndc.z.abs() <= 1.0 && e_ndc.z.abs() <= 1.0 {
-                ctx.draw(&Line {
-                    x1: s_ndc.x,
-                    y1: s_ndc.y,
-                    x2: e_ndc.x,
-                    y2: e_ndc.y,
-                    color: Color::Yellow,
-                });
-            }
+        // Simple Culling Check
+        if s_ndc.z.abs() <= 1.0 && e_ndc.z.abs() <= 1.0 {
+            ctx.draw(&Line {
+                x1: s_ndc.x,
+                y1: s_ndc.y,
+                x2: e_ndc.x,
+                y2: e_ndc.y,
+                color: Color::Yellow,
+            });
         }
     }
 }

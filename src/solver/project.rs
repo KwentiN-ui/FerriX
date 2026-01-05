@@ -5,26 +5,31 @@ use std::{
     fmt::Write,
     fs::{self, read_to_string},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use thiserror::Error;
 
 use crate::solver::{
+    inp::InpFile,
     mesh_lib::{
         elements::element::{Element, ElementType},
         mesh::Mesh,
     },
-    step::step_trait::Step,
+    step::steps::Step,
 };
 
+/// This struct holds all relevant information from the `.inp` file
+#[derive(Debug, Clone)]
 pub struct Project {
     /// The filepath to the .inp file.
     pub filepath: PathBuf,
-    pub mesh: Mesh,
-    pub steps: Vec<Box<dyn Step>>,
+    pub mesh: Arc<Mesh>,
+    pub steps: Vec<Step>,
+    pub input: Arc<InpFile>,
 }
 
 impl Project {
-    pub fn print_info(&self) -> String {
+    pub fn get_info(&self) -> String {
         let mut info = String::new();
 
         let _ = writeln!(info, "--- Project Info ---");
@@ -58,17 +63,18 @@ impl Project {
         }
 
         // read and process the input
-        let input = preprocess_inp(&read_to_string(&path)?);
+        let input: InpFile = InpFile(preprocess_inp(&read_to_string(&path)?));
         if let Some(out) = preprocess_output {
-            fs::write(out, &input)?;
+            fs::write(out, &input.0)?;
         }
         let sections = parse_sections_from_str(&input);
 
         let mesh = Mesh::from_sections(&input, &sections)?;
         Ok(Self {
             filepath: path,
-            mesh,
+            mesh: mesh.into(),
             steps: Vec::new(),
+            input: input.into(),
         })
     }
 
@@ -83,9 +89,9 @@ impl Project {
     }
 }
 
-fn parse_sections_from_str(string: &str) -> Vec<InpSection> {
+fn parse_sections_from_str(file: &InpFile) -> Vec<InpSection> {
     let mut sections: Vec<InpSection> = Vec::new();
-    for (nr, line) in string.lines().enumerate() {
+    for (nr, line) in file.0.lines().enumerate() {
         if line == "*NODE" {
             sections.push(InpSection::Node(nr));
         } else if line.starts_with("*ELEMENT") {
