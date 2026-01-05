@@ -53,28 +53,22 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 fn draw_mesh(ctx: &mut Context, app: &App) {
     if let Some(project) = &app.project {
-        // Calculate MVP matrix once per frame
         let mvp = app.camera.build_view_projection_matrix();
 
-        let points: Vec<(f64, f64)> = project
-            .mesh
-            .nodes
-            .iter()
-            .filter_map(|node| {
-                let p_world = Point3::new(node.1.x, node.1.y, node.1.z);
+        for (p_start, p_end) in &project.mesh.wireframe_lines {
+            let s_ndc = mvp.transform_point(p_start);
+            let e_ndc = mvp.transform_point(p_end);
 
-                // transform_point performs perspective division automatically
-                let p_ndc = mvp.transform_point(&p_world);
-
-                // Frustum culling: check if point is within NDC bounds [-1.0, 1.0]
-                if p_ndc.x.abs() <= 1.0 && p_ndc.y.abs() <= 1.0 && p_ndc.z.abs() <= 1.0 {
-                    Some((p_ndc.x, p_ndc.y))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        ctx.draw(&Points::new(&points, Color::White));
+            // Simple Culling Check
+            if s_ndc.z.abs() <= 1.0 && e_ndc.z.abs() <= 1.0 {
+                ctx.draw(&Line {
+                    x1: s_ndc.x,
+                    y1: s_ndc.y,
+                    x2: e_ndc.x,
+                    y2: e_ndc.y,
+                    color: Color::Yellow,
+                });
+            }
+        }
     }
 }

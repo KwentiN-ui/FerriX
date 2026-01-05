@@ -1,10 +1,13 @@
-use std::{collections::HashMap, error::Error};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+};
 
 use nalgebra::{Point3, center};
 
 use crate::solver::{
     mesh_lib::{
-        elements::element::{Element, ElementType},
+        elements::element::{Element, ElementType, Face},
         node::Node,
     },
     project::{InpParsingError, InpSection},
@@ -15,6 +18,7 @@ use crate::solver::{
 pub struct Mesh {
     pub nodes: HashMap<usize, Node>,
     pub elements: Vec<Element>,
+    pub wireframe_lines: Vec<(Point3<f64>, Point3<f64>)>,
 }
 
 impl Mesh {
@@ -67,10 +71,13 @@ impl Mesh {
             node_hash.insert(node.id, node);
         }
 
-        Ok(Self {
+        let mut mesh = Self {
             nodes: node_hash,
             elements,
-        })
+            wireframe_lines: Vec::new(),
+        };
+        mesh.precompute_wireframe();
+        Ok(mesh)
     }
 
     /// Counts all elements by their respective type.
@@ -103,5 +110,52 @@ impl Mesh {
             });
 
         center(&min, &max)
+    }
+
+    pub fn precompute_wireframe(&mut self) {
+        let mut face_counts: HashMap<Face, u8> = HashMap::new();
+
+        // 1. Zähle Vorkommen aller Flächen
+        for elem in &self.elements {
+            for face in elem.get_faces() {
+                // Wir nutzen saturating_add, da uns alles >= 2 egal ist (es ist internal)
+                face_counts
+                    .entry(face)
+                    .and_modify(|c| *c = c.saturating_add(1))
+                    .or_insert(1);
+            }
+        }
+
+        // 2. Filtere nur Flächen mit Count == 1 (Außenhaut)
+        // 3. Sammle Kanten dieser Flächen in ein HashSet (zur Deduplizierung)
+        let mut unique_edges: HashSet<(usize, usize)> = HashSet::new();
+
+        for (face, count) in face_counts {
+            if count == 1 {
+                let ids = match face {
+                    Face::Tri(n) => vec![(n[0], n[1]), (n[1], n[2]), (n[2], n[0])],
+                    Face::Quad(n) => vec![(n[0], n[1]), (n[1], n[2]), (n[2], n[3]), (n[3], n[0])],
+                };
+
+                for (a, b) in ids {
+                    // Sortiere Kanten-IDs (min, max), damit (1,2) == (2,1)
+                    let edge = if a < b { (a, b) } else { (b, a) };
+                    unique_edges.insert(edge);
+                }
+            }
+        }
+
+        // 4. Löse IDs in Koordinaten auf und speichere im Cache
+        self.wireframe_lines = unique_edges
+            .iter()
+            .filter_map(|(id_a, id_b)| {
+                let n_a = self.nodes.get(id_a)?;
+                let n_b = self.nodes.get(id_b)?;
+                Some((
+                    Point3::new(n_a.x, n_a.y, n_a.z),
+                    Point3::new(n_b.x, n_b.y, n_b.z),
+                ))
+            })
+            .collect();
     }
 }
