@@ -1,5 +1,6 @@
-use std::{error::Error, sync::Arc};
+use std::{error::Error, sync::Arc, time::Duration};
 
+use indicatif::{ProgressBar, ProgressStyle};
 use ndarray::{Array2, ArrayView1};
 use sprs::{CsMat, TriMat};
 
@@ -404,7 +405,11 @@ fn invert_jacobian_3x3(m: &Array2<f64>) -> Result<(f64, Array2<f64>), ()> {
 #[allow(clippy::many_single_char_names)]
 fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<f64>, String> {
     println!("Conjugate gradient solver is running...");
-    // TODO Visualize solution progress
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.enable_steady_tick(Duration::from_millis(100));
+    spinner.set_style(ProgressStyle::default_spinner());
+
     let b_len = b.len();
     let mut x = vec![0.0; b_len]; // Initial guess x0 = 0
 
@@ -416,7 +421,9 @@ fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<
     let mut rs_old: f64 = r.iter().map(|v| v * v).sum();
 
     for _ in 0..max_iter {
+        spinner.set_message(format!("Residual: {rs_old:.6}"));
         if rs_old.sqrt() < tol {
+            spinner.finish();
             return Ok(x);
         }
 
@@ -450,7 +457,7 @@ fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<
 
         rs_old = rs_new;
     }
-
+    spinner.finish();
     Err(format!(
         "CG solver did not converge after {max_iter} iterations"
     ))
