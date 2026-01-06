@@ -1,8 +1,7 @@
 use clap::Parser;
-use std::{sync::mpsc, thread, time::Duration};
 
 use crate::solver::{
-    io::{frd::FrdWriter, vtk::VtkWriter, writer::ResultWriter},
+    io::{vtk::VtkWriter, writer::ResultWriter},
     project::Project,
     results::StepResult,
     step::{static_step::StaticStep, steps::Step},
@@ -22,6 +21,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mesh = project.mesh.clone();
 
     let mut all_results: Vec<StepResult> = Vec::new();
+
+    println!("{}", project.get_info());
 
     // Solver thread
     for (i, step_type) in steps.iter().enumerate() {
@@ -52,10 +53,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // We use the mesh from the last step (assuming no remeshing)
         match writer.write(&path, &mesh.clone(), &all_results) {
             Ok(()) => {
-                println!("Written results to disk!")
+                println!("Written results to disk!");
             }
             Err(e) => {
-                eprintln!("{e}")
+                eprintln!("{e}");
             }
         }
     }

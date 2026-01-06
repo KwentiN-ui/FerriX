@@ -17,7 +17,7 @@ strum_macros = "0.27.2"
 thiserror = "2.0.17"
 
 [lints.rust]
-unused = "allow"
+# unused = "allow"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

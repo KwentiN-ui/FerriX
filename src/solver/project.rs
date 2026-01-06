@@ -1,21 +1,12 @@
 use std::{
-    collections::HashMap,
     error::Error,
     fmt::Write,
     fs::{self, read_to_string},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
 };
-use thiserror::Error;
 
-use crate::solver::{
-    inp::InpFile,
-    mesh_lib::{
-        elements::element::{Element, ElementType},
-        mesh::Mesh,
-    },
-    step::{static_step::StaticStep, steps::Step},
-};
+use crate::solver::{inp::InpFile, mesh_lib::mesh::Mesh, step::steps::Step};
 
 /// This struct holds all relevant information from the `.inp` file
 #[derive(Debug, Clone)]
@@ -70,8 +61,8 @@ impl Project {
 
         let mesh = Mesh::from_sections(&input, &sections)?;
 
-        // TODO: Steps
-        let mut steps = vec![Step::StaticStep];
+        // TODO: parse Steps from input file
+        let steps = vec![Step::StaticStep];
 
         Ok(Self {
             filepath: path,
@@ -103,14 +94,13 @@ fn parse_sections_from_str(file: &InpFile) -> Vec<InpSection> {
             let name = line
                 .split(',')
                 .find(|part| part.trim().starts_with("NSET="))
-                .map(|part| {
+                .map_or("UNKNOWN".to_string(), |part| {
                     part.split('=')
                         .nth(1)
                         .unwrap_or("UNKNOWN")
                         .trim()
                         .to_string()
-                })
-                .unwrap_or_else(|| "UNKNOWN".to_string());
+                });
 
             let is_generate = line
                 .chars()
@@ -154,14 +144,8 @@ fn preprocess_inp(input_file: &str) -> String {
 pub enum InpSection {
     Node(usize),
     Element(usize),
-    /// Stores: LineNumber, Name, is_generate
+    /// Stores: `LineNumber`, Name, `is_generate`
     Nset(usize, String, bool),
-}
-
-#[derive(Error, Debug)]
-pub enum InpParsingError {
-    #[error("Keyword {0} is unknown (Line {1})")]
-    UnknownKeyword(String, u64),
 }
 
 #[cfg(test)]

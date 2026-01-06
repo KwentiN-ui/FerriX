@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 /// Types of fields we can store
+#[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldType {
     Displacement, // U
@@ -31,7 +32,9 @@ impl NodalResult {
     }
 }
 
+// TODO
 /// Holds all results for a single step (e.g. "Step 1 - Static")
+#[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct StepResult {
     pub step_id: usize,

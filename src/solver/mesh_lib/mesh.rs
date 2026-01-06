@@ -1,17 +1,12 @@
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-};
-
-use nalgebra::{Point3, Unit, Vector3, center};
+use std::{collections::HashMap, error::Error};
 
 use crate::solver::{
     inp::InpFile,
     mesh_lib::{
-        elements::element::{Element, ElementType, Face},
+        elements::element::{Element, ElementType},
         node::Node,
     },
-    project::{InpParsingError, InpSection},
+    project::InpSection,
 };
 
 /// Contains all Node and Element Data
@@ -19,7 +14,6 @@ use crate::solver::{
 pub struct Mesh {
     pub nodes: HashMap<usize, Node>,
     pub elements: HashMap<usize, Element>,
-    pub wireframe_lines: Vec<(Point3<f64>, Point3<f64>)>,
     pub node_sets: HashMap<String, Vec<usize>>,
 
     /// Map: Node-ID (from INP) -> Matrix-Index (0..N)
@@ -29,16 +23,6 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn new() -> Self {
-        Self {
-            nodes: HashMap::new(),
-            elements: HashMap::new(),
-            wireframe_lines: Vec::new(),
-            node_id_to_index: HashMap::new(),
-            index_to_node_id: Vec::new(),
-            node_sets: HashMap::new(),
-        }
-    }
     pub fn from_sections(
         input_file: &InpFile,
         sections: &Vec<InpSection>,
@@ -79,7 +63,7 @@ impl Mesh {
                     );
                 }
                 // Parse Node Sets
-                // Assumes InpSection::Nset(line_index, name, is_generate)
+                // Assumes `InpSection::Nset(line_index, name, is_generate)`
                 InpSection::Nset(nr, name, is_generate) => {
                     let mut ids = Vec::new();
 
@@ -95,7 +79,7 @@ impl Mesh {
                         for line in data_lines {
                             let nums: Vec<usize> = line
                                 .split(',')
-                                .map(|s| s.trim())
+                                .map(str::trim)
                                 .filter(|s| !s.is_empty())
                                 .filter_map(|s| s.parse().ok())
                                 .collect();
@@ -116,7 +100,7 @@ impl Mesh {
                         for line in data_lines {
                             let line_ids = line
                                 .split(',')
-                                .map(|s| s.trim())
+                                .map(str::trim)
                                 .filter(|s| !s.is_empty())
                                 .filter_map(|s| s.parse::<usize>().ok());
                             ids.extend(line_ids);
@@ -124,8 +108,6 @@ impl Mesh {
                     }
                     node_sets.insert(name.clone(), ids);
                 }
-
-                _ => {}
             }
         }
 
@@ -144,12 +126,10 @@ impl Mesh {
             nodes: node_hash,
             elements: elem_hash,
             node_sets, // Pass the filled map
-            wireframe_lines: Vec::new(),
             node_id_to_index: HashMap::new(),
             index_to_node_id: Vec::new(),
         };
 
-        mesh.precompute_wireframe();
         mesh.build_node_mappings();
 
         Ok(mesh)
@@ -175,26 +155,6 @@ impl Mesh {
         self.node_id_to_index.get(&id).copied()
     }
 
-    /// Resolves a string (from *BOUNDARY) to a list of Node IDs.
-    /// The string can be a direct number ("105") or a Set Name ("FIXPOINTS").
-    pub fn resolve_node_ids(&self, identifier: &str) -> Vec<usize> {
-        let identifier = identifier.trim();
-
-        // 1. Try to find a Node Set with this name
-        if let Some(set_ids) = self.node_sets.get(identifier) {
-            return set_ids.clone();
-        }
-
-        // 2. Try to parse as single Node ID
-        if let Ok(id) = identifier.parse::<usize>() {
-            // Optional: Check if node exists? For now just return it.
-            return vec![id];
-        }
-
-        // 3. Not found
-        Vec::new()
-    }
-
     /// Counts all elements by their respective type.
     pub fn count_by_type(&self) -> HashMap<ElementType, u32> {
         let mut elem_count: HashMap<ElementType, u32> = HashMap::new();
@@ -203,119 +163,5 @@ impl Mesh {
             *elem_count.entry(elem_type).or_insert(0) += 1;
         }
         elem_count
-    }
-
-    /// Compute the median Position of all points
-    pub fn get_center(&self) -> Point3<f64> {
-        if self.nodes.is_empty() {
-            return Point3::origin();
-        }
-
-        let init_min = Point3::new(f64::MAX, f64::MAX, f64::MAX);
-        let init_max = Point3::new(f64::MIN, f64::MIN, f64::MIN);
-
-        let (min, max) = self
-            .nodes
-            .iter()
-            .fold((init_min, init_max), |(min, max), (_, node)| {
-                (
-                    Point3::new(min.x.min(node.x), min.y.min(node.y), min.z.min(node.z)),
-                    Point3::new(max.x.max(node.x), max.y.max(node.y), max.z.max(node.z)),
-                )
-            });
-
-        center(&min, &max)
-    }
-
-    /// This method creates a wireframe for hard edges of the model for the tui mesh preview window.
-    pub fn precompute_wireframe(&mut self) {
-        // Surface Extraction
-        let mut face_counts: HashMap<Face, u8> = HashMap::new();
-        for elem in self.elements.values() {
-            for face in elem.get_faces() {
-                face_counts
-                    .entry(face)
-                    .and_modify(|c| *c = c.saturating_add(1))
-                    .or_insert(1);
-            }
-        }
-
-        // Map: Edge -> List of normals
-        // Edge Key is (min_id, max_id)
-        let mut edge_normals: HashMap<(usize, usize), Vec<Vector3<f64>>> = HashMap::new();
-
-        // iterate over external faces (Count == 1)
-        for (face, count) in face_counts {
-            if count == 1 {
-                if let Some(normal) = self.compute_face_normal(&face) {
-                    // get all edges of the face
-                    let ids = match face {
-                        Face::Tri(n) => vec![(n[0], n[1]), (n[1], n[2]), (n[2], n[0])],
-                        Face::Quad(n) => {
-                            vec![(n[0], n[1]), (n[1], n[2]), (n[2], n[3]), (n[3], n[0])]
-                        }
-                    };
-
-                    for (a, b) in ids {
-                        let edge_key = if a < b { (a, b) } else { (b, a) };
-                        // add face normal to edge
-                        edge_normals.entry(edge_key).or_default().push(*normal);
-                    }
-                }
-            }
-        }
-
-        // filter by angle
-        let threshold_deg = 30.0_f64;
-        let threshold_val = threshold_deg.to_radians().cos();
-
-        self.wireframe_lines = edge_normals
-            .iter()
-            .filter_map(|((id_a, id_b), normals)| {
-                match normals.len() {
-                    1 => {
-                        // Outer Edge, draw always (open mesh)
-                        let n_a = self.nodes.get(id_a)?;
-                        let n_b = self.nodes.get(id_b)?;
-                        Some((Point3::from(n_a), Point3::from(n_b)))
-                    }
-                    2 => {
-                        let n1 = normals[0];
-                        let n2 = normals[1];
-                        let dot = n1.dot(&n2);
-
-                        if dot.abs() < threshold_val {
-                            let n_a = self.nodes.get(id_a)?;
-                            let n_b = self.nodes.get(id_b)?;
-                            Some((Point3::from(n_a), Point3::from(n_b)))
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None, // Non-manifold, ignore
-                }
-            })
-            .collect();
-    }
-
-    fn compute_face_normal(&self, face: &Face) -> Option<Unit<Vector3<f64>>> {
-        let (i1, i2, i3) = match face {
-            Face::Tri(idx) => (idx[0], idx[1], idx[2]),
-            Face::Quad(idx) => (idx[0], idx[1], idx[2]), // Annahme: Planar, erste 3 Punkte reichen
-        };
-
-        let p1 = self.nodes.get(&i1)?;
-        let p2 = self.nodes.get(&i2)?;
-        let p3 = self.nodes.get(&i3)?;
-
-        let v1 = Point3::new(p1.x, p1.y, p1.z);
-        let v2 = Point3::new(p2.x, p2.y, p2.z);
-        let v3 = Point3::new(p3.x, p3.y, p3.z);
-
-        // Crossproduct: (p2 - p1) x (p3 - p1)
-        let edge1 = v2 - v1;
-        let edge2 = v3 - v1;
-
-        Unit::try_new(edge1.cross(&edge2), 1e-6)
     }
 }

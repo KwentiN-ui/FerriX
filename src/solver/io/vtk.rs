@@ -77,12 +77,12 @@ impl ResultWriter for VtkWriter {
 
         writeln!(w, "CELL_TYPES {}", cell_types.len())?;
         for t in &cell_types {
-            writeln!(w, "{}", t)?;
+            writeln!(w, "{t}")?;
         }
 
         // --- POINT_DATA ---
         if !results.is_empty() {
-            writeln!(w, "POINT_DATA {}", num_nodes)?;
+            writeln!(w, "POINT_DATA {num_nodes}")?;
 
             for step in results {
                 for field in &step.nodal_results {
@@ -90,7 +90,7 @@ impl ResultWriter for VtkWriter {
                         // Field naming
                         let field_name = format!("{}_Step{}", field.name, step.step_id);
 
-                        writeln!(w, "VECTORS {} float", field_name)?;
+                        writeln!(w, "VECTORS {field_name} float")?;
 
                         // WICHTIG: Die Reihenfolge muss wieder exakt den POINTS entsprechen!
                         // Wir iterieren über `index_to_node_id` (0..N) und suchen den Wert.

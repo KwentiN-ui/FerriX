@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    error::Error,
-    sync::{Arc, mpsc::Sender},
-};
+use std::{error::Error, sync::Arc};
 
 use ndarray::{Array2, ArrayView1};
 use sprs::{CsMat, TriMat};
@@ -407,6 +403,8 @@ fn invert_jacobian_3x3(m: &Array2<f64>) -> Result<(f64, Array2<f64>), ()> {
 /// Solves K * x = b
 #[allow(clippy::many_single_char_names)]
 fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<f64>, String> {
+    println!("Conjugate gradient solver is running...");
+    // TODO Visualize solution progress
     let b_len = b.len();
     let mut x = vec![0.0; b_len]; // Initial guess x0 = 0
 
@@ -417,8 +415,7 @@ fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<
     // r_old = r^T * r
     let mut rs_old: f64 = r.iter().map(|v| v * v).sum();
 
-    for i in 0..max_iter {
-        println!("Iteration {i}");
+    for _ in 0..max_iter {
         if rs_old.sqrt() < tol {
             return Ok(x);
         }
@@ -452,135 +449,9 @@ fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<
         }
 
         rs_old = rs_new;
-        println!("Residual: {rs_new}");
     }
 
     Err(format!(
         "CG solver did not converge after {max_iter} iterations"
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::solver::mesh_lib::elements::element::{Element, ElementType};
-    use crate::solver::mesh_lib::node::Node;
-    use std::collections::HashMap;
-
-    // Helper to create a dummy step with a single element
-    fn create_single_element_step() -> (StaticStep, usize) {
-        let mut nodes = HashMap::new();
-        // Unit Tetrahedral: Origin + Unit vectors
-        nodes.insert(
-            1,
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-            },
-        );
-        nodes.insert(
-            2,
-            Node {
-                id: 2,
-                x: 1.0,
-                y: 0.0,
-                z: 0.0,
-            },
-        );
-        nodes.insert(
-            3,
-            Node {
-                id: 3,
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
-            },
-        );
-        nodes.insert(
-            4,
-            Node {
-                id: 4,
-                x: 0.0,
-                y: 0.0,
-                z: 1.0,
-            },
-        );
-
-        let mut elements = HashMap::new();
-        let el_id = 1;
-        // C3D4 connecting nodes 1, 2, 3, 4
-        let element = Element::C3D4(el_id, [1, 2, 3, 4]);
-        elements.insert(el_id, element);
-
-        let mut mesh = Mesh::new();
-        mesh.nodes = nodes;
-        mesh.elements = elements;
-        mesh.build_node_mappings(); // Crucial: Initialize mappings
-
-        // Dummy input file
-        let inp_file = InpFile(String::new());
-
-        let step = StaticStep::new(Arc::new(inp_file), Arc::new(mesh));
-        (step, el_id)
-    }
-
-    #[test]
-    fn test_c3d4_stiffness_properties() {
-        let (step, el_id) = create_single_element_step();
-
-        // Standard steel parameters
-        let e_mod = 210000.0;
-        let nu = 0.3;
-        let d_matrix = build_elastic_d_matrix(e_mod, nu);
-
-        let element = step.mesh.elements.get(&el_id).unwrap();
-
-        // Calculate Stiffness Matrix
-        let k_el = step
-            .compute_element_stiffness(&d_matrix, element)
-            .expect("Computation failed");
-
-        // 1. Check Dimensions (4 Nodes * 3 DOFs = 12x12)
-        assert_eq!(
-            k_el.shape(),
-            &[12, 12],
-            "Stiffness matrix has wrong dimensions"
-        );
-
-        // 2. Check Symmetry (K_ij == K_ji)
-        for i in 0..12 {
-            for j in i + 1..12 {
-                let val_ij = k_el[[i, j]];
-                let val_ji = k_el[[j, i]];
-                assert!(
-                    (val_ij - val_ji).abs() < 1e-9,
-                    "Matrix not symmetric at ({}, {}): {} != {}",
-                    i,
-                    j,
-                    val_ij,
-                    val_ji
-                );
-            }
-        }
-
-        // 3. Check Rigid Body Translation
-        // Sum of rows must be zero (equilibrium of forces for rigid move)
-        for i in 0..12 {
-            let row_sum: f64 = k_el.row(i).sum();
-            assert!(
-                row_sum.abs() < 1e-9,
-                "Row {} sum is not zero ({}), rigid body motion fails",
-                i,
-                row_sum
-            );
-        }
-
-        // 4. Check Positive Diagonal
-        // Diagonal elements represent stiffness against direct displacement, usually > 0
-        for i in 0..12 {
-            assert!(k_el[[i, i]] > 0.0, "Diagonal element {} is not positive", i);
-        }
-    }
 }

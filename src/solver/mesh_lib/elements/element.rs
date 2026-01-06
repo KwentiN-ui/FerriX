@@ -1,4 +1,4 @@
-use ndarray::{Array2, array};
+use ndarray::Array2;
 use std::error::Error;
 use std::str::FromStr;
 
@@ -65,37 +65,6 @@ impl Element {
         }
     }
 
-    pub fn get_faces(&self) -> Vec<Face> {
-        match self {
-            // C3D4: 4 Triangle Faces
-            Element::C3D4(_, n) => vec![
-                Face::tri(n[0], n[1], n[2]),
-                Face::tri(n[0], n[1], n[3]),
-                Face::tri(n[1], n[2], n[3]),
-                Face::tri(n[2], n[0], n[3]),
-            ],
-            // C3D6: 2 Triangle Faces, Top and Bottom
-            Element::C3D6(_, n) => vec![
-                Face::tri(n[0], n[1], n[2]), // Unten
-                Face::tri(n[3], n[4], n[5]), // Oben
-                Face::quad(n[0], n[1], n[4], n[3]),
-                Face::quad(n[1], n[2], n[5], n[4]),
-                Face::quad(n[2], n[0], n[3], n[5]),
-            ],
-            // C3D20: 6 Quad Faces
-            Element::C3D20(_, n) => vec![
-                Face::quad(n[0], n[1], n[2], n[3]), // Unten
-                Face::quad(n[4], n[5], n[6], n[7]), // Oben
-                Face::quad(n[0], n[1], n[5], n[4]), // Seiten...
-                Face::quad(n[1], n[2], n[6], n[5]),
-                Face::quad(n[2], n[3], n[7], n[6]),
-                Face::quad(n[3], n[0], n[4], n[7]),
-            ],
-            // S8: Is a single Face
-            Element::S8(_, n) => vec![Face::quad(n[0], n[1], n[2], n[3])],
-        }
-    }
-
     pub fn get_id(&self) -> usize {
         match self {
             Element::C3D20(id, _)
@@ -138,30 +107,7 @@ pub struct GaussPoint {
     pub weight: f64,
 }
 
-use std::cmp::{max, min};
-
 use crate::solver::mesh_lib::elements::{
     c3d4::{c3d4_gauss, shape_func_c3d4},
     c3d20::{c3d20_gauss, shape_func_c3d20},
 };
-
-// Helper for Drawing the Mesh
-#[derive(Debug, Hash, Eq, PartialEq, Clone)]
-pub enum Face {
-    Tri([usize; 3]),
-    Quad([usize; 4]),
-}
-
-impl Face {
-    fn tri(a: usize, b: usize, c: usize) -> Self {
-        let mut arr = [a, b, c];
-        arr.sort_unstable(); // make face canonical
-        Face::Tri(arr)
-    }
-
-    fn quad(a: usize, b: usize, c: usize, d: usize) -> Self {
-        let mut arr = [a, b, c, d];
-        arr.sort_unstable();
-        Face::Quad(arr)
-    }
-}
