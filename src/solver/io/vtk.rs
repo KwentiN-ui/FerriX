@@ -31,7 +31,7 @@ impl ResultWriter for VtkWriter {
         // Wir MÜSSEN daher zwingend unser `index_to_node_id` Mapping nutzen,
         // um die Reihenfolge konsistent zu halten.
         let num_nodes = mesh.index_to_node_id.len();
-        writeln!(w, "POINTS {} float", num_nodes)?;
+        writeln!(w, "POINTS {num_nodes} float")?;
 
         for &node_id in &mesh.index_to_node_id {
             // Unsafe unwrap ist hier ok, da das Mapping konsistent sein muss
@@ -59,7 +59,7 @@ impl ResultWriter for VtkWriter {
                     let idx3 = mesh.get_index_for_node_id(nodes[3]).unwrap();
 
                     // 4 Knoten + 1 Count-Integer = 5 Einträge
-                    cell_data.push(format!("4 {} {} {} {}", idx0, idx1, idx2, idx3));
+                    cell_data.push(format!("4 {idx0} {idx1} {idx2} {idx3}"));
                     cell_types.push(10); // VTK_TETRA
                     list_size += 5;
                 }
@@ -72,7 +72,7 @@ impl ResultWriter for VtkWriter {
 
         writeln!(w, "CELLS {} {}", cell_data.len(), list_size)?;
         for line in &cell_data {
-            writeln!(w, "{}", line)?;
+            writeln!(w, "{line}")?;
         }
 
         writeln!(w, "CELL_TYPES {}", cell_types.len())?;

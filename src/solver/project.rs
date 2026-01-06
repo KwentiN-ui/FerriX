@@ -1,4 +1,3 @@
-use ratatui::widgets::canvas::Line;
 use std::{
     collections::HashMap,
     error::Error,

@@ -7,14 +7,11 @@ use std::{
 use ndarray::{Array2, ArrayView1};
 use sprs::{CsMat, TriMat};
 
-use crate::{
-    solver::{
-        inp::InpFile,
-        mesh_lib::{elements::element::Element, mesh::Mesh},
-        results::{FieldType, NodalResult, StepResult},
-        step::boundary_conds::{BoundaryCondition, Load},
-    },
-    tui::app::AppEvent,
+use crate::solver::{
+    inp::InpFile,
+    mesh_lib::{elements::element::Element, mesh::Mesh},
+    results::{FieldType, NodalResult, StepResult},
+    step::boundary_conds::{BoundaryCondition, Load},
 };
 
 // hardcoded constants for now, will be replaced with material card
@@ -146,13 +143,13 @@ impl StaticStep {
         bcs
     }
 
-    pub fn compute(&mut self, tx: &Sender<AppEvent>) -> Result<StepResult, Box<dyn Error>> {
+    pub fn compute(&mut self) -> Result<StepResult, Box<dyn Error>> {
         let loads = self.parse_loads();
         let bcs = self.parse_bcs();
+
         // 1. Setup
-        let _ = tx.send(AppEvent::SolverLog(
-            "Constructing global stiffness matrix".to_string(),
-        ));
+        println!("Constructing global stiffness matrix");
+
         let num_nodes = self.mesh.index_to_node_id.len();
         if num_nodes == 0 {
             return Err("Mesh empty or mappings not initialized".into());
@@ -241,21 +238,19 @@ impl StaticStep {
         // 5. Conversion & Solving
         let k_global: CsMat<f64> = triplet.to_csr();
 
-        let _ = tx.send(AppEvent::SolverLog(format!(
+        println!(
             "System assembled. K: {}x{}, NNZ: {}. Solving...",
             k_global.rows(),
             k_global.cols(),
             k_global.nnz()
-        )));
+        );
 
         // Call solver
-        let u = solve_cg(&k_global, &f_global, 1e-8, 10000, tx)?;
+        let u = solve_cg(&k_global, &f_global, 1e-8, 10000)?;
 
         // Log result (e.g. displacement norm)
         let u_norm: f64 = u.iter().map(|x| x * x).sum::<f64>().sqrt();
-        let _ = tx.send(AppEvent::SolverLog(format!(
-            "Solution converged. Displacement Norm: {u_norm:.4e}"
-        )));
+        println!("Solution converged. Displacement Norm: {u_norm:.4e}");
 
         let mut displacement_field = NodalResult::new("U", FieldType::Displacement);
 
@@ -411,13 +406,7 @@ fn invert_jacobian_3x3(m: &Array2<f64>) -> Result<(f64, Array2<f64>), ()> {
 /// Simple Conjugate Gradient Solver for sparse symmetric positive definite systems.
 /// Solves K * x = b
 #[allow(clippy::many_single_char_names)]
-fn solve_cg(
-    k: &CsMat<f64>,
-    b: &[f64],
-    tol: f64,
-    max_iter: usize,
-    tx: &Sender<AppEvent>,
-) -> Result<Vec<f64>, String> {
+fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<f64>, String> {
     let b_len = b.len();
     let mut x = vec![0.0; b_len]; // Initial guess x0 = 0
 
@@ -429,7 +418,7 @@ fn solve_cg(
     let mut rs_old: f64 = r.iter().map(|v| v * v).sum();
 
     for i in 0..max_iter {
-        let _ = tx.send(AppEvent::SolverLog(format!("Iteration {i}")));
+        println!("Iteration {i}");
         if rs_old.sqrt() < tol {
             return Ok(x);
         }
@@ -463,7 +452,7 @@ fn solve_cg(
         }
 
         rs_old = rs_new;
-        let _ = tx.send(AppEvent::SolverLog(format!("Residual: {rs_new}")));
+        println!("Residual: {rs_new}");
     }
 
     Err(format!(

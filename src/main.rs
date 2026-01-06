@@ -1,104 +1,66 @@
 use clap::Parser;
-use crossterm::event;
 use std::{sync::mpsc, thread, time::Duration};
 
-use crate::{
-    solver::{
-        io::{frd::FrdWriter, vtk::VtkWriter, writer::ResultWriter},
-        project::Project,
-        results::StepResult,
-        step::{static_step::StaticStep, steps::Step},
-    },
-    tui::{
-        app::{App, AppEvent},
-        setup, ui,
-    },
+use crate::solver::{
+    io::{frd::FrdWriter, vtk::VtkWriter, writer::ResultWriter},
+    project::Project,
+    results::StepResult,
+    step::{static_step::StaticStep, steps::Step},
 };
 
 mod solver;
-mod tui;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let mut app = App::new(Project::from_jobname(&args.jobname, None)?);
+    let project = Project::from_jobname(&args.jobname, None)?;
 
-    // Channel & Worker Thread
-    let (tx, rx) = mpsc::channel();
-    let tx_solver = tx.clone();
-
-    let steps = app.project.steps.clone();
-    let filepath = app.project.filepath.clone();
+    let steps = project.steps.clone();
+    let filepath = project.filepath.clone();
     // clone is fine here, it's just the pointer
-    let input = app.project.input.clone();
-    let mesh = app.project.mesh.clone();
+    let input = project.input.clone();
+    let mesh = project.mesh.clone();
 
     let mut all_results: Vec<StepResult> = Vec::new();
 
-    thread::spawn(move || {
-        // Solver thread
-        for (i, step_type) in steps.iter().enumerate() {
-            match step_type {
-                Step::StaticStep => {
-                    let mut step = StaticStep::new(input.clone(), mesh.clone());
-                    let _ = tx_solver
-                        .send(AppEvent::SolverLog(format!("--- Step {i}: StaticStep ---")));
-                    match step.compute(&tx_solver) {
-                        Ok(res) => {
-                            all_results.push(res);
-                            let _ =
-                                tx_solver.send(AppEvent::SolverLog(format!("Step {i} completed.")));
-                        }
-                        Err(e) => {
-                            let _ = tx_solver.send(AppEvent::SolverLog(format!(
-                                "Error occured in Step {i}:\n{e}"
-                            )));
-                            break;
-                        }
+    // Solver thread
+    for (i, step_type) in steps.iter().enumerate() {
+        match step_type {
+            Step::StaticStep => {
+                let mut step = StaticStep::new(input.clone(), mesh.clone());
+                println!("--- Step {i}: StaticStep ---");
+                match step.compute() {
+                    Ok(res) => {
+                        all_results.push(res);
+                        println!("Step {i} completed.");
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Error occured in step {i}: {e}\n\nAttempting to write results..."
+                        );
+                        break;
                     }
                 }
             }
         }
-        // write results
-        if !all_results.is_empty() {
-            let writer = VtkWriter;
-            let path = filepath.parent().unwrap().join("results.vtk");
+    }
+    // write results
+    if !all_results.is_empty() {
+        let writer = VtkWriter;
+        let path = filepath.parent().unwrap().join("results.vtk");
 
-            // We use the mesh from the last step (assuming no remeshing)
-            match writer.write(&path, &mesh.clone(), &all_results) {
-                Ok(()) => {
-                    let _ = tx_solver.send(AppEvent::SolverLog("Written results to disk".into()));
-                }
-                Err(e) => {
-                    let _ = tx_solver.send(AppEvent::SolverLog(format!("Write error: {e}")));
-                }
+        // We use the mesh from the last step (assuming no remeshing)
+        match writer.write(&path, &mesh.clone(), &all_results) {
+            Ok(()) => {
+                println!("Written results to disk!")
             }
-        }
-        tx_solver.send(AppEvent::AnalysisFinished).unwrap();
-    });
-
-    // TUI
-    let mut terminal = setup::init()?;
-
-    // Main Loop
-    while !app.should_quit {
-        terminal.draw(|f| ui::draw(f, &app))?;
-
-        // Event handling
-        if event::poll(Duration::from_millis(50))? {
-            if let event::Event::Key(key) = event::read()? {
-                app.update(AppEvent::Input(key));
+            Err(e) => {
+                eprintln!("{e}")
             }
-        }
-
-        // Check for messages
-        while let Ok(msg) = rx.try_recv() {
-            app.update(msg);
         }
     }
+    println!("Analysis done, have a nice day!");
 
-    // cleanup
-    setup::restore()?;
     Ok(())
 }
 

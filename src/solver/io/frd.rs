@@ -56,7 +56,7 @@ impl ResultWriter for FrdWriter {
             write!(w, " -1{:10}{:5}{:5}    0", id, type_code, 1)?;
 
             for &n_id in nodes {
-                write!(w, "{:10}", n_id)?;
+                write!(w, "{n_id:10}")?;
             }
             writeln!(w)?;
         }
