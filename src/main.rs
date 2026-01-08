@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // write results
     if !all_results.is_empty() {
         let writer = VtkWriter;
-        let path = filepath.parent().unwrap().join("results.vtk");
+        let path = filepath.parent().unwrap().join(project.jobname() + ".vtk");
 
         // We use the mesh from the last step (assuming no remeshing)
         match writer.write(&path, &mesh.clone(), &all_results) {

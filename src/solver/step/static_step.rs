@@ -48,7 +48,13 @@ impl StaticStep {
 
     pub fn parse_loads(&self) -> Vec<Load> {
         let mut loads = Vec::new();
-        let mut lines = self.input.0.lines().peekable();
+        let mut lines = self
+            .input
+            .0
+            .lines()
+            .skip(self.line_number)
+            .take_while(|line| !line.starts_with("*STEP"))
+            .peekable();
 
         while let Some(line) = lines.next() {
             let trimmed = line.trim();
@@ -90,7 +96,13 @@ impl StaticStep {
 
     pub fn parse_bcs(&self) -> Vec<BoundaryCondition> {
         let mut bcs = Vec::new();
-        let mut lines = self.input.0.lines().peekable();
+        let mut lines = self
+            .input
+            .0
+            .lines()
+            .skip(self.line_number)
+            .take_while(|line| !line.starts_with("*STEP"))
+            .peekable();
 
         while let Some(line) = lines.next() {
             let trimmed = line.trim();
