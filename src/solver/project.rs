@@ -88,20 +88,17 @@ impl Project {
 /// This functions searches the input file for known step-types. These are later in the order defined here.
 use strum::IntoEnumIterator;
 fn parse_steps(input: &InpFile) -> Vec<Step> {
-    // TODO make this more elgant, using .peekable with an iterator
     let mut steps = Vec::new();
-    for (nr, line) in input.0.lines().enumerate() {
+    let mut lines = input.0.lines().enumerate().peekable();
+
+    while let Some((_, line)) = lines.next() {
         if line.starts_with("*STEP") {
-            // next line contains the keyword
-            for step in StepKind::iter() {
-                if input
-                    .0
-                    .lines()
-                    .nth(nr + 1)
-                    .expect("*STEP must not be the last line of the input file.")
-                    .starts_with(step.keyword())
-                {
-                    steps.push(step.create(nr + 1));
+            if let Some((next_nr, next_line)) = lines.peek() {
+                for step in StepKind::iter() {
+                    if next_line.starts_with(step.keyword()) {
+                        steps.push(step.create(*next_nr));
+                        break;
+                    }
                 }
             }
         }

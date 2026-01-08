@@ -22,20 +22,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut all_results: Vec<StepResult> = Vec::new();
 
-    println!("{}", project.get_info());
+    println!("{LOGO}");
+    println!("by Quentin Huss\n\n");
+
+    println!("{}\n", project.get_info());
 
     // Solver thread
     for (i, step_type) in steps.iter().enumerate() {
         let step_id = i + 1;
         match step_type {
             Step::StaticStep(line) => {
-                dbg!(line);
                 let mut step = StaticStep::new(input.clone(), mesh.clone(), *line);
                 println!("--- Step {step_id}: StaticStep ---");
                 match step.compute(step_id) {
                     Ok(res) => {
                         all_results.push(res);
-                        println!("Step {step_id} completed.");
+                        println!("Step {step_id} completed.\n\n");
                     }
                     Err(e) => {
                         eprintln!(
@@ -77,3 +79,10 @@ pub struct Args {
     #[arg(short, long)]
     preprocessed_output: Option<String>,
 }
+
+const LOGO: &str = r" _____ _____ ____  ____  _ ___  _
+/    //  __//  __\/  __\/ \\  \//
+|  __\|  \  |  \/||  \/|| | \  /
+| |   |  /_ |    /|    /| | /  \
+\_/   \____\\_/\_\\_/\_\\_//__/\\
+                                ";
