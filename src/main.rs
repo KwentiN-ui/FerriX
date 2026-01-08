@@ -26,18 +26,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Solver thread
     for (i, step_type) in steps.iter().enumerate() {
+        let step_nr = i + 1;
         match step_type {
             Step::StaticStep(line) => {
+                dbg!(line);
                 let mut step = StaticStep::new(input.clone(), mesh.clone(), *line);
-                println!("--- Step {i}: StaticStep ---");
+                println!("--- Step {step_nr}: StaticStep ---");
                 match step.compute() {
                     Ok(res) => {
                         all_results.push(res);
-                        println!("Step {i} completed.");
+                        println!("Step {step_nr} completed.");
                     }
                     Err(e) => {
                         eprintln!(
-                            "Error occured in step {i}: {e}\n\nAttempting to write results..."
+                            "Error occured in step {step_nr}: {e}\n\nAttempting to write results..."
                         );
                         break;
                     }

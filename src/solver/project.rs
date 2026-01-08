@@ -5,7 +5,11 @@ use std::{
     path::PathBuf,
 };
 
-use crate::solver::{inp::InpFile, mesh_lib::mesh::Mesh, step::steps::Step};
+use crate::solver::{
+    inp::InpFile,
+    mesh_lib::mesh::Mesh,
+    step::steps::{Step, StepKind},
+};
 
 /// This struct holds all relevant information from the `.inp` file
 #[derive(Debug, Clone)]
@@ -84,11 +88,21 @@ impl Project {
 /// This functions searches the input file for known step-types. These are later in the order defined here.
 use strum::IntoEnumIterator;
 fn parse_steps(input: &InpFile) -> Vec<Step> {
+    // TODO make this more elgant, using .peekable with an iterator
     let mut steps = Vec::new();
-    for line in input.0.lines() {
-        for step in Step::iter() {
-            if line.starts_with(step.keyword()) {
-                steps.push(step);
+    for (nr, line) in input.0.lines().enumerate() {
+        if line.starts_with("*STEP") {
+            // next line contains the keyword
+            for step in StepKind::iter() {
+                if input
+                    .0
+                    .lines()
+                    .nth(nr + 1)
+                    .expect("*STEP must not be the last line of the input file.")
+                    .starts_with(step.keyword())
+                {
+                    steps.push(step.create(nr + 1));
+                }
             }
         }
     }
