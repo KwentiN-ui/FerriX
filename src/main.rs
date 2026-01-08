@@ -1,3 +1,4 @@
+use chrono::{Local, Utc};
 use clap::Parser;
 
 use crate::solver::{
@@ -22,10 +23,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut all_results: Vec<StepResult> = Vec::new();
 
+    println!("{}\n", Local::now().format("%d.%m.%y, %H:%M:%S"));
     println!("{LOGO}");
     println!("by Quentin Huss\n\n");
 
     println!("{}\n", project.get_info());
+
+    let start_time = Utc::now();
 
     // Solver thread
     for (i, step_type) in steps.iter().enumerate() {
@@ -64,8 +68,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    println!("Analysis done, have a nice day!");
 
+    println!("Analysis done, have a nice day!");
+    println!("{:.2}s", (Utc::now() - start_time).as_seconds_f64());
     Ok(())
 }
 
