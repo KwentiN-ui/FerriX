@@ -54,14 +54,14 @@ pub fn shape_func_c3d20(xi: f64, eta: f64, zeta: f64) -> (Vec<f64>, Array2<f64>)
     let mut dn = Array2::<f64>::zeros((3, 20));
 
     // dN/dxi
-    dn[[0, 0]] = 0.125 * (1.0 - eta) * (1.0 - zeta) * (-1.0 * (-xi - eta - zeta - 2.0) - (1.0 - xi));
+    dn[[0, 0]] = 0.125 * (1.0 - eta) * (1.0 - zeta) * (-(-xi - eta - zeta - 2.0) - (1.0 - xi));
     dn[[0, 1]] = 0.125 * (1.0 - eta) * (1.0 - zeta) * (1.0 * (xi - eta - zeta - 2.0) + (1.0 + xi));
     dn[[0, 2]] = 0.125 * (1.0 + eta) * (1.0 - zeta) * (1.0 * (xi + eta - zeta - 2.0) + (1.0 + xi));
-    dn[[0, 3]] = 0.125 * (1.0 + eta) * (1.0 - zeta) * (-1.0 * (-xi + eta - zeta - 2.0) - (1.0 - xi));
-    dn[[0, 4]] = 0.125 * (1.0 - eta) * (1.0 + zeta) * (-1.0 * (-xi - eta + zeta - 2.0) - (1.0 - xi));
+    dn[[0, 3]] = 0.125 * (1.0 + eta) * (1.0 - zeta) * (-(-xi + eta - zeta - 2.0) - (1.0 - xi));
+    dn[[0, 4]] = 0.125 * (1.0 - eta) * (1.0 + zeta) * (-(-xi - eta + zeta - 2.0) - (1.0 - xi));
     dn[[0, 5]] = 0.125 * (1.0 - eta) * (1.0 + zeta) * (1.0 * (xi - eta + zeta - 2.0) + (1.0 + xi));
     dn[[0, 6]] = 0.125 * (1.0 + eta) * (1.0 + zeta) * (1.0 * (xi + eta + zeta - 2.0) + (1.0 + xi));
-    dn[[0, 7]] = 0.125 * (1.0 + eta) * (1.0 + zeta) * (-1.0 * (-xi + eta + zeta - 2.0) - (1.0 - xi));
+    dn[[0, 7]] = 0.125 * (1.0 + eta) * (1.0 + zeta) * (-(-xi + eta + zeta - 2.0) - (1.0 - xi));
     dn[[0, 8]] = -0.5 * xi * (1.0 - eta) * (1.0 - zeta);
     dn[[0, 9]] = 0.25 * (1.0 - eta * eta) * (1.0 - zeta);
     dn[[0, 10]] = -0.5 * xi * (1.0 + eta) * (1.0 - zeta);
@@ -76,12 +76,12 @@ pub fn shape_func_c3d20(xi: f64, eta: f64, zeta: f64) -> (Vec<f64>, Array2<f64>)
     dn[[0, 19]] = -0.25 * (1.0 - eta * eta) * (1.0 + zeta);
 
     // dN/deta
-    dn[[1, 0]] = 0.125 * (1.0 - xi) * (1.0 - zeta) * (-1.0 * (-xi - eta - zeta - 2.0) - (1.0 - eta));
-    dn[[1, 1]] = 0.125 * (1.0 + xi) * (1.0 - zeta) * (-1.0 * (xi - eta - zeta - 2.0) - (1.0 - eta));
+    dn[[1, 0]] = 0.125 * (1.0 - xi) * (1.0 - zeta) * (-(-xi - eta - zeta - 2.0) - (1.0 - eta));
+    dn[[1, 1]] = 0.125 * (1.0 + xi) * (1.0 - zeta) * (-(xi - eta - zeta - 2.0) - (1.0 - eta));
     dn[[1, 2]] = 0.125 * (1.0 + xi) * (1.0 - zeta) * (1.0 * (xi + eta - zeta - 2.0) + (1.0 + eta));
     dn[[1, 3]] = 0.125 * (1.0 - xi) * (1.0 - zeta) * (1.0 * (-xi + eta - zeta - 2.0) + (1.0 + eta));
-    dn[[1, 4]] = 0.125 * (1.0 - xi) * (1.0 + zeta) * (-1.0 * (-xi - eta + zeta - 2.0) - (1.0 - eta));
-    dn[[1, 5]] = 0.125 * (1.0 + xi) * (1.0 + zeta) * (-1.0 * (xi - eta + zeta - 2.0) - (1.0 - eta));
+    dn[[1, 4]] = 0.125 * (1.0 - xi) * (1.0 + zeta) * (-(-xi - eta + zeta - 2.0) - (1.0 - eta));
+    dn[[1, 5]] = 0.125 * (1.0 + xi) * (1.0 + zeta) * (-(xi - eta + zeta - 2.0) - (1.0 - eta));
     dn[[1, 6]] = 0.125 * (1.0 + xi) * (1.0 + zeta) * (1.0 * (xi + eta + zeta - 2.0) + (1.0 + eta));
     dn[[1, 7]] = 0.125 * (1.0 - xi) * (1.0 + zeta) * (1.0 * (-xi + eta + zeta - 2.0) + (1.0 + eta));
     dn[[1, 8]] = -0.25 * (1.0 - xi * xi) * (1.0 - zeta);
@@ -96,12 +96,12 @@ pub fn shape_func_c3d20(xi: f64, eta: f64, zeta: f64) -> (Vec<f64>, Array2<f64>)
     dn[[1, 17]] = -0.5 * eta * (1.0 + xi) * (1.0 + zeta);
     dn[[1, 18]] = 0.25 * (1.0 - xi * xi) * (1.0 + zeta);
     dn[[1, 19]] = -0.5 * eta * (1.0 - xi) * (1.0 + zeta);
-    
+
     // dN/dzeta
-    dn[[2, 0]] = 0.125 * (1.0 - xi) * (1.0 - eta) * (-1.0 * (-xi - eta - zeta - 2.0) - (1.0 - zeta));
-    dn[[2, 1]] = 0.125 * (1.0 + xi) * (1.0 - eta) * (-1.0 * (xi - eta - zeta - 2.0) - (1.0 - zeta));
-    dn[[2, 2]] = 0.125 * (1.0 + xi) * (1.0 + eta) * (-1.0 * (xi + eta - zeta - 2.0) - (1.0 - zeta));
-    dn[[2, 3]] = 0.125 * (1.0 - xi) * (1.0 + eta) * (-1.0 * (-xi + eta - zeta - 2.0) - (1.0 - zeta));
+    dn[[2, 0]] = 0.125 * (1.0 - xi) * (1.0 - eta) * (-(-xi - eta - zeta - 2.0) - (1.0 - zeta));
+    dn[[2, 1]] = 0.125 * (1.0 + xi) * (1.0 - eta) * (-(xi - eta - zeta - 2.0) - (1.0 - zeta));
+    dn[[2, 2]] = 0.125 * (1.0 + xi) * (1.0 + eta) * (-(xi + eta - zeta - 2.0) - (1.0 - zeta));
+    dn[[2, 3]] = 0.125 * (1.0 - xi) * (1.0 + eta) * (-(-xi + eta - zeta - 2.0) - (1.0 - zeta));
     dn[[2, 4]] = 0.125 * (1.0 - xi) * (1.0 - eta) * (1.0 * (-xi - eta + zeta - 2.0) + (1.0 + zeta));
     dn[[2, 5]] = 0.125 * (1.0 + xi) * (1.0 - eta) * (1.0 * (xi - eta + zeta - 2.0) + (1.0 + zeta));
     dn[[2, 6]] = 0.125 * (1.0 + xi) * (1.0 + eta) * (1.0 * (xi + eta + zeta - 2.0) + (1.0 + zeta));
