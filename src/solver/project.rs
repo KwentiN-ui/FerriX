@@ -60,8 +60,7 @@ impl Project {
 
         let mesh = Mesh::from_sections(&input, &sections)?;
 
-        // TODO: parse Steps from input file
-        let steps = vec![Step::StaticStep];
+        let steps = parse_steps(&input);
 
         Ok(Self {
             filepath: path,
@@ -80,6 +79,20 @@ impl Project {
             .expect("There is no reason why this should fail")
             .to_string()
     }
+}
+
+/// This functions searches the input file for known step-types. These are later in the order defined here.
+use strum::IntoEnumIterator;
+fn parse_steps(input: &InpFile) -> Vec<Step> {
+    let mut steps = Vec::new();
+    for line in input.0.lines() {
+        for step in Step::iter() {
+            if line.starts_with(step.keyword()) {
+                steps.push(step);
+            }
+        }
+    }
+    steps
 }
 
 fn parse_sections_from_str(file: &InpFile) -> Vec<InpSection> {

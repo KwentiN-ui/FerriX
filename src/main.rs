@@ -27,8 +27,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Solver thread
     for (i, step_type) in steps.iter().enumerate() {
         match step_type {
-            Step::StaticStep => {
-                let mut step = StaticStep::new(input.clone(), mesh.clone());
+            Step::StaticStep(line) => {
+                let mut step = StaticStep::new(input.clone(), mesh.clone(), *line);
                 println!("--- Step {i}: StaticStep ---");
                 match step.compute() {
                     Ok(res) => {

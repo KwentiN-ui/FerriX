@@ -19,11 +19,16 @@ const NU: f64 = 0.3;
 pub struct StaticStep {
     input: Box<InpFile>,
     mesh: Box<Mesh>,
+    line_number: usize,
 }
 
 impl StaticStep {
-    pub fn new(input: Box<InpFile>, mesh: Box<Mesh>) -> Self {
-        Self { input, mesh }
+    pub fn new(input: Box<InpFile>, mesh: Box<Mesh>, line_number: usize) -> Self {
+        Self {
+            input,
+            mesh,
+            line_number,
+        }
     }
 
     /// Helper: Resolves a string (Set Name or ID) to a list of Node IDs
