@@ -3,7 +3,6 @@ use std::{
     fmt::Write,
     fs::{self, read_to_string},
     path::PathBuf,
-    sync::Arc,
 };
 
 use crate::solver::{inp::InpFile, mesh_lib::mesh::Mesh, step::steps::Step};
@@ -13,9 +12,9 @@ use crate::solver::{inp::InpFile, mesh_lib::mesh::Mesh, step::steps::Step};
 pub struct Project {
     /// The filepath to the .inp file.
     pub filepath: PathBuf,
-    pub mesh: Arc<Mesh>,
+    pub mesh: Box<Mesh>,
     pub steps: Vec<Step>,
-    pub input: Arc<InpFile>,
+    pub input: Box<InpFile>,
 }
 
 impl Project {

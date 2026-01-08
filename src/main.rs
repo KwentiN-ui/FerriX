@@ -67,7 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
-struct Args {
+pub struct Args {
     /// The jobname. `CalculiX` will look for `<jobname>.inp`.
     jobname: String,
 

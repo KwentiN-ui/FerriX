@@ -1,4 +1,4 @@
-use std::{error::Error, sync::Arc, time::Duration};
+use std::{error::Error, time::Duration};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use ndarray::{Array2, ArrayView1};
@@ -17,12 +17,12 @@ const NU: f64 = 0.3;
 
 #[derive(Debug, Clone)]
 pub struct StaticStep {
-    input: Arc<InpFile>,
-    mesh: Arc<Mesh>,
+    input: Box<InpFile>,
+    mesh: Box<Mesh>,
 }
 
 impl StaticStep {
-    pub fn new(input: Arc<InpFile>, mesh: Arc<Mesh>) -> Self {
+    pub fn new(input: Box<InpFile>, mesh: Box<Mesh>) -> Self {
         Self { input, mesh }
     }
 
