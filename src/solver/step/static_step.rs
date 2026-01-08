@@ -462,3 +462,388 @@ fn solve_cg(k: &CsMat<f64>, b: &[f64], tol: f64, max_iter: usize) -> Result<Vec<
         "CG solver did not converge after {max_iter} iterations"
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::solver::mesh_lib::node::Node;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_single_c3d4_element_tension() {
+        // 1. Create a simple mesh in-memory
+        let mut nodes = HashMap::new();
+        nodes.insert(
+            1,
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            2,
+            Node {
+                id: 2,
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            3,
+            Node {
+                id: 3,
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            4,
+            Node {
+                id: 4,
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        );
+
+        let mut elements = HashMap::new();
+        let element = Element::C3D4(1, [1, 2, 3, 4]);
+        elements.insert(1, element);
+
+        let mut node_sets = HashMap::new();
+        node_sets.insert("Fixed".to_string(), vec![1, 2, 3]);
+
+        let mut mesh = Mesh {
+            nodes,
+            elements,
+            node_sets,
+            node_id_to_index: HashMap::new(),
+            index_to_node_id: Vec::new(),
+        };
+        mesh.build_node_mappings();
+
+        // 2. Create an inp-file string for BCs and Loads
+        let inp_file_content = r#"
+*BOUNDARY
+Fixed, 1, 3
+*CLOAD
+4, 3, 1000.0
+"#
+        .to_string();
+        let inp_file = InpFile(inp_file_content);
+
+        // 3. Setup and run the StaticStep
+        let mut static_step = StaticStep::new(Box::new(inp_file), Box::new(mesh));
+        let result = static_step.compute();
+
+        // 4. Assert the results
+        assert!(result.is_ok(), "Solver failed to compute");
+        let step_result = result.unwrap();
+
+        let u_field = step_result
+            .nodal_results
+            .iter()
+            .find(|r| r.name == "U")
+            .expect("Displacement field not found");
+
+        // --- Analytical check ---
+        // This is a rough approximation. A real test would use a known
+        // result from another FEA software or a textbook example.
+        // For a simple bar: disp = F*L / (A*E)
+        // Here, we have a tetrahedron. Let's just check if the displacement
+        // of node 4 is in the right direction and plausible.
+        let disp_node_4 = u_field.data.get(&4).expect("Node 4 not in results");
+        let uz = disp_node_4[2];
+
+        // Assert that displacement in z is positive and significant
+        assert!(uz > 0.0, "Displacement in z should be positive");
+
+        // The exact value is hard to calculate by hand.
+        // Let's assert it's within a plausible range for this test setup.
+        // This value is a placeholder and should be replaced with a verified one.
+        let expected_uz_approx = 0.0212245132255;
+        let tolerance = expected_uz_approx * 0.001; // 1% tolerance
+        assert!(
+            (uz - expected_uz_approx).abs() < tolerance,
+            "Displacement Z at node 4 is {:.6}, expected around {:.6}",
+            uz,
+            expected_uz_approx
+        );
+
+        // Assert that other displacements on the loaded node are near zero
+        let ux = disp_node_4[0];
+        let uy = disp_node_4[1];
+        assert!(
+            ux.abs() < 1e-6,
+            "Displacement X at node 4 should be near zero"
+        );
+        assert!(
+            uy.abs() < 1e-6,
+            "Displacement Y at node 4 should be near zero"
+        );
+
+        // Assert that fixed nodes have zero displacement
+        for node_id in &[1, 2, 3] {
+            let disp = u_field.data.get(node_id).unwrap();
+            assert!(disp.iter().all(|&d| d.abs() < 1e-6));
+        }
+    }
+
+    #[test]
+    fn test_single_c3d20_element_cantilever() {
+        // 1. Create a simple mesh in-memory for a cantilever beam
+        let mut nodes = HashMap::new();
+        // Node coordinates for a 10x1x1 beam
+        // Corners
+        nodes.insert(
+            1,
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            2,
+            Node {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            3,
+            Node {
+                id: 3,
+                x: 10.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            4,
+            Node {
+                id: 4,
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            5,
+            Node {
+                id: 5,
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        );
+        nodes.insert(
+            6,
+            Node {
+                id: 6,
+                x: 10.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        );
+        nodes.insert(
+            7,
+            Node {
+                id: 7,
+                x: 10.0,
+                y: 1.0,
+                z: 1.0,
+            },
+        );
+        nodes.insert(
+            8,
+            Node {
+                id: 8,
+                x: 0.0,
+                y: 1.0,
+                z: 1.0,
+            },
+        );
+        // Midside
+        nodes.insert(
+            9,
+            Node {
+                id: 9,
+                x: 5.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            10,
+            Node {
+                id: 10,
+                x: 10.0,
+                y: 0.5,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            11,
+            Node {
+                id: 11,
+                x: 5.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            12,
+            Node {
+                id: 12,
+                x: 0.0,
+                y: 0.5,
+                z: 0.0,
+            },
+        );
+        nodes.insert(
+            13,
+            Node {
+                id: 13,
+                x: 0.0,
+                y: 0.0,
+                z: 0.5,
+            },
+        );
+        nodes.insert(
+            14,
+            Node {
+                id: 14,
+                x: 10.0,
+                y: 0.0,
+                z: 0.5,
+            },
+        );
+        nodes.insert(
+            15,
+            Node {
+                id: 15,
+                x: 10.0,
+                y: 1.0,
+                z: 0.5,
+            },
+        );
+        nodes.insert(
+            16,
+            Node {
+                id: 16,
+                x: 0.0,
+                y: 1.0,
+                z: 0.5,
+            },
+        );
+        nodes.insert(
+            17,
+            Node {
+                id: 17,
+                x: 5.0,
+                y: 0.0,
+                z: 1.0,
+            },
+        );
+        nodes.insert(
+            18,
+            Node {
+                id: 18,
+                x: 10.0,
+                y: 0.5,
+                z: 1.0,
+            },
+        );
+        nodes.insert(
+            19,
+            Node {
+                id: 19,
+                x: 5.0,
+                y: 1.0,
+                z: 1.0,
+            },
+        );
+        nodes.insert(
+            20,
+            Node {
+                id: 20,
+                x: 0.0,
+                y: 0.5,
+                z: 1.0,
+            },
+        );
+
+        let mut elements = HashMap::new();
+        let element = Element::C3D20(
+            1,
+            [
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+            ],
+        );
+        elements.insert(1, element);
+
+        let mut node_sets = HashMap::new();
+        node_sets.insert("Fixed".to_string(), vec![1, 4, 5, 8, 12, 13, 16, 20]);
+        node_sets.insert("Load".to_string(), vec![2, 3, 6, 7, 10, 14, 15, 18]);
+
+        let mut mesh = Mesh {
+            nodes,
+            elements,
+            node_sets,
+            node_id_to_index: HashMap::new(),
+            index_to_node_id: Vec::new(),
+        };
+        mesh.build_node_mappings();
+
+        // 2. Create an inp-file string for BCs and Loads
+        let inp_file_content = r#"
+*BOUNDARY
+Fixed, 1, 3
+*CLOAD
+Load, 3, -100.0
+"#
+        .to_string();
+        let inp_file = InpFile(inp_file_content);
+
+        // 3. Setup and run the StaticStep
+        let mut static_step = StaticStep::new(Box::new(inp_file), Box::new(mesh));
+        let result = static_step.compute();
+
+        // 4. Assert the results
+        assert!(result.is_ok(), "Solver failed to compute");
+        let step_result = result.unwrap();
+
+        let u_field = step_result
+            .nodal_results
+            .iter()
+            .find(|r| r.name == "U")
+            .expect("Displacement field not found");
+
+        let disp_node_2 = u_field.data.get(&2).expect("Node 2 not in results");
+        let uz = disp_node_2[2];
+
+        // Cantilever beam theory: d = (P * L^3) / (3 * E * I)
+        // P = 100 * 8 = 800N (total load)
+        // L = 10
+        // E = 210000
+        // I = (b*h^3)/12 = (1*1^3)/12 = 1/12
+        // d = (800 * 10^3) / (3 * 210000 * (1/12)) = 15.23
+        // This is a rough estimation, the FEA result will be different.
+        let expected_uz_approx: f64 = -13.806006;
+        let tolerance = expected_uz_approx.abs() * 0.01; // 1% tolerance
+        assert!(
+            (uz - expected_uz_approx).abs() < tolerance,
+            "Displacement Z at node 2 is {:.6}, expected around {:.6}",
+            uz,
+            expected_uz_approx
+        );
+    }
+}
