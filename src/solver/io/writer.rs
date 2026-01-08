@@ -3,7 +3,7 @@ use crate::solver::results::StepResult;
 use std::error::Error;
 use std::path::Path;
 
-/// Trait for modular output formats
+/// Trait for writing output formats
 pub trait ResultWriter {
     fn write(
         &self,

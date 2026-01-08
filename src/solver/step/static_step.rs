@@ -157,7 +157,7 @@ impl StaticStep {
         bcs
     }
 
-    pub fn compute(&mut self) -> Result<StepResult, Box<dyn Error>> {
+    pub fn compute(&mut self, step_id: usize) -> Result<StepResult, Box<dyn Error>> {
         let loads = self.parse_loads();
         let bcs = self.parse_bcs();
 
@@ -278,7 +278,7 @@ impl StaticStep {
             }
         }
 
-        let mut step_res = StepResult::new(1, "Static Step", 1.0);
+        let mut step_res = StepResult::new(step_id, "Static Step", 1.);
         step_res.nodal_results.push(displacement_field);
 
         Ok(step_res)

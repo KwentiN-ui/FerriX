@@ -26,24 +26,16 @@ impl ResultWriter for VtkWriter {
         writeln!(w, "ASCII")?;
         writeln!(w, "DATASET UNSTRUCTURED_GRID")?;
 
-        // --- POINTS (Knoten) ---
-        // VTK referenziert Knoten über ihren Index (0, 1, 2...) in dieser Liste.
-        // Wir MÜSSEN daher zwingend unser `index_to_node_id` Mapping nutzen,
-        // um die Reihenfolge konsistent zu halten.
+        // --- POINTS (Nodes) ---
         let num_nodes = mesh.index_to_node_id.len();
         writeln!(w, "POINTS {num_nodes} float")?;
 
         for &node_id in &mesh.index_to_node_id {
-            // Unsafe unwrap ist hier ok, da das Mapping konsistent sein muss
             let node = &mesh.nodes[&node_id];
             writeln!(w, "{} {} {}", node.x, node.y, node.z)?;
         }
 
-        // --- CELLS (Elemente) ---
-        // Wir müssen erst die Daten sammeln, um die Gesamtgröße für den Header zu kennen.
-        // Format pro Zeile: "Anzahl_Knoten Index1 Index2 ..."
-        // Indizes müssen die 0-basierten VTK-Indizes sein!
-
+        // --- CELLS (Elements) ---
         let mut cell_data: Vec<String> = Vec::new();
         let mut cell_types: Vec<u8> = Vec::new();
         let mut list_size = 0; // Anzahl Einträge (Anzahl Elemente + Summe aller Knotenreferenzen)
@@ -52,21 +44,17 @@ impl ResultWriter for VtkWriter {
             match elem {
                 Element::C3D4(_, nodes) => {
                     // Mapping: NodeID -> VTK Index
-                    // Wir nutzen das Mesh-Lookup
                     let idx0 = mesh.get_index_for_node_id(nodes[0]).unwrap();
                     let idx1 = mesh.get_index_for_node_id(nodes[1]).unwrap();
                     let idx2 = mesh.get_index_for_node_id(nodes[2]).unwrap();
                     let idx3 = mesh.get_index_for_node_id(nodes[3]).unwrap();
 
-                    // 4 Knoten + 1 Count-Integer = 5 Einträge
+                    // 4 Knoten + 1 Count-Integer
                     cell_data.push(format!("4 {idx0} {idx1} {idx2} {idx3}"));
                     cell_types.push(10); // VTK_TETRA
                     list_size += 5;
                 }
-                // Hier später C3D10, Hex8 etc. ergänzen
-                _ => {
-                    todo!()
-                }
+                Element::C3D20(_, _nodes) => todo!("This is not supported yet!"),
             }
         }
 
@@ -86,21 +74,27 @@ impl ResultWriter for VtkWriter {
 
             for step in results {
                 for field in &step.nodal_results {
-                    if field.field_type == FieldType::Displacement {
-                        // Field naming
-                        let field_name = format!("{}_Step{}", field.name, step.step_id);
+                    match field.field_type {
+                        FieldType::Displacement => {
+                            // Field naming
+                            let field_name = format!("{}_Step{}", field.name, step.step_id);
 
-                        writeln!(w, "VECTORS {field_name} float")?;
+                            writeln!(w, "VECTORS {field_name} float")?;
 
-                        // WICHTIG: Die Reihenfolge muss wieder exakt den POINTS entsprechen!
-                        // Wir iterieren über `index_to_node_id` (0..N) und suchen den Wert.
-                        for &node_id in &mesh.index_to_node_id {
-                            if let Some(val) = field.data.get(&node_id) {
-                                writeln!(w, "{} {} {}", val[0], val[1], val[2])?;
-                            } else {
-                                // Fallback, falls ein Knoten keine Ergebnisse hat (sollte nicht passieren)
-                                writeln!(w, "0.0 0.0 0.0")?;
+                            for &node_id in &mesh.index_to_node_id {
+                                if let Some(val) = field.data.get(&node_id) {
+                                    writeln!(w, "{} {} {}", val[0], val[1], val[2])?;
+                                } else {
+                                    // Fallback, this should not happen
+                                    writeln!(w, "0.0 0.0 0.0")?;
+                                }
                             }
+                        }
+                        FieldType::Strain => {
+                            todo!("Is yet to be implemented!")
+                        }
+                        FieldType::Stress => {
+                            todo!("Is yet to be implemented!")
                         }
                     }
                 }

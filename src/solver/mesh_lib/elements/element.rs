@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 use strum_macros::{EnumDiscriminants, EnumString};
 
-/// <https://web.mit.edu/calculix_v2.7/CalculiX/ccx_2.7/doc/ccx/node194.html>
-/// strum automatically generates a String-enum `ElementType` based on these definitions.
+/// Supported element types (<https://web.mit.edu/calculix_v2.7/CalculiX/ccx_2.7/doc/ccx/node194.html>).
+/// `strum` automatically generates a String-enum `ElementType` based on these definitions.
 #[derive(EnumDiscriminants, Debug, Clone)]
 #[strum_discriminants(derive(Hash, EnumString))]
 #[strum_discriminants(name(ElementType))]
@@ -13,14 +13,11 @@ pub enum Element {
     // General 3D-Solids
     /// 4-node linear tetrahedral element
     C3D4(usize, [usize; 4]),
-    /// 6-node linear triangular prism element
-    C3D6(usize, [usize; 6]),
     /// 3D 20-node quadratic isoparametric element
     C3D20(usize, [usize; 20]),
-
-    // Shell elements
-    /// S8 (8-node quadratic shell element)
-    S8(usize, [usize; 8]),
+    // TODO Shell elements
+    // S8 (8-node quadratic shell element)
+    // S8(usize, [usize; 8]),
 }
 
 impl Element {
@@ -59,18 +56,13 @@ impl Element {
 
         match elem_type {
             ElementType::C3D4 => Element::C3D4(id, to_arr!(C3D4)),
-            ElementType::C3D6 => Element::C3D6(id, to_arr!(C3D6)),
             ElementType::C3D20 => Element::C3D20(id, to_arr!(C3D20)),
-            ElementType::S8 => Element::S8(id, to_arr!(S8)),
         }
     }
 
     pub fn get_id(&self) -> usize {
         match self {
-            Element::C3D20(id, _)
-            | Element::C3D6(id, _)
-            | Element::C3D4(id, _)
-            | Element::S8(id, _) => *id,
+            Element::C3D20(id, _) | Element::C3D4(id, _) => *id,
         }
     }
 
@@ -78,9 +70,7 @@ impl Element {
     pub fn get_node_ids(&self) -> &[usize] {
         match self {
             Element::C3D4(_, n) => n,
-            Element::C3D6(_, n) => n,
             Element::C3D20(_, n) => n,
-            Element::S8(_, n) => n,
         }
     }
 
@@ -88,7 +78,6 @@ impl Element {
         match self {
             Element::C3D4(..) => c3d4_gauss(),
             Element::C3D20(..) => c3d20_gauss(),
-            _ => todo!("This is not implement yet..."),
         }
     }
 
@@ -96,7 +85,6 @@ impl Element {
         match self {
             Element::C3D4(..) => shape_func_c3d4(xi, eta, zeta),
             Element::C3D20(..) => shape_func_c3d20(xi, eta, zeta),
-            _ => todo!("Shape functions missing"),
         }
     }
 }
