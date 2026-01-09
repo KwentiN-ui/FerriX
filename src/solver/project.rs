@@ -1,3 +1,4 @@
+use crate::solver::ids::ElementId;
 use std::{
     collections::HashMap,
     error::Error,
@@ -10,24 +11,43 @@ use crate::solver::{
     inp::InpFile,
     material::Material,
     mesh_lib::mesh::Mesh,
-    section::{Section, SectionString},
-    step::steps::Step,
+    parser::Parser,
+    step::{
+        boundary_conds::{BoundaryCondition, Load},
+        steps::Step,
+    },
 };
 
-/// This struct holds all relevant information from the `.inp` file
-#[derive(Debug, Clone)]
+/// Represents the central data structure for a single FEA problem.
+///
+/// This struct aggregates all the necessary information parsed from an `.inp` file,
+/// including the mesh, materials, steps, loads, and boundary conditions. It serves
+/// as the primary container passed between different components of the solver.
+#[derive(Debug, Clone, Default)]
 pub struct Project {
-    /// The filepath to the .inp file.
+    /// The filepath to the `.inp` file, which serves as the job's identifier.
     pub filepath: PathBuf,
+    /// The finite element mesh, containing all nodes, elements, and sets.
     pub mesh: Box<Mesh>,
+    /// A vector of analysis steps to be executed in sequence.
     pub steps: Vec<Step>,
+    /// The preprocessed content of the input file, stored for reference.
     pub input: Box<InpFile>,
+    /// A list of all materials defined in the model.
     pub materials: Vec<Material>,
-    /// Map: Element-ID -> Material-Index
-    pub element_materials: HashMap<usize, usize>,
+    /// A map that links each `ElementId` to its corresponding material's index in the `materials` vector.
+    pub element_materials: HashMap<ElementId, usize>,
+    /// A collection of all concentrated loads (`*CLOAD`) defined in the model.
+    pub loads: Vec<Load>,
+    /// A collection of all boundary conditions (`*BOUNDARY`) defined in the model.
+    pub bcs: Vec<BoundaryCondition>,
 }
 
 impl Project {
+    pub fn new() -> Self {
+        Project::default()
+    }
+
     pub fn get_info(&self) -> String {
         let mut info = String::new();
 
@@ -51,7 +71,6 @@ impl Project {
     ) -> Result<Self, Box<dyn Error>> {
         let mut path = PathBuf::from(jobname_filepath);
 
-        // Appends .inp if not existing already
         if !path
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("inp"))
@@ -61,52 +80,19 @@ impl Project {
             path = PathBuf::from(s);
         }
 
-        // read and process the input
-        let input: InpFile = InpFile::new(&read_to_string(&path)?);
+        let input_content = read_to_string(&path)?;
         if let Some(out) = preprocess_output {
-            fs::write(out, &input.0)?;
+            fs::write(out, &input_content)?;
         }
-        let inp_sections = InpSection::parse_sections_from_input(&input);
-
-        let sections = SectionString::parse_input(&input);
-
-        let mesh = Mesh::from_sections(&input, &inp_sections)?;
-        let materials = Material::from_input(&input);
-
-        // --- Link materials to elements ---
-        let mut element_materials = HashMap::new();
-        // Create a helper map from material name to index
-        let material_name_to_index: HashMap<String, usize> = materials
-            .iter()
-            .enumerate()
-            .map(|(i, m)| (m.name.clone(), i))
-            .collect();
-
-        for section in sections {
-            match section {
-                Section::SolidSection(elset_name, material_name) => {
-                    if let Some(material_index) = material_name_to_index.get(&material_name) {
-                        if let Some(element_ids) = mesh.element_sets.get(&elset_name) {
-                            for &element_id in element_ids {
-                                element_materials.insert(element_id, *material_index);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // --- End linking ---
-
-        let steps = Step::parse_steps(&input);
-
-        Ok(Self {
-            steps,
-            materials,
-            filepath: path,
-            mesh: Box::new(mesh),
-            input: input.into(),
-            element_materials,
-        })
+        
+        let input = InpFile::new(&input_content);
+        let mut project = Parser::new(&input).parse()?;
+        
+        project.filepath = path;
+        project.input = Box::new(input);
+        
+        
+        Ok(project)
     }
 
     /// Gets the jobname from a filepath.
@@ -117,68 +103,5 @@ impl Project {
             .to_str()
             .expect("There is no reason why this should fail")
             .to_string()
-    }
-}
-
-/// Different types of sections of the .inp file and their line-number
-#[derive(Debug, PartialEq)]
-pub enum InpSection {
-    Node(usize),
-    Element(usize),
-    /// Stores: `LineNumber`, Name, `is_generate`
-    Nset(usize, String, bool),
-    /// Stores: `LineNumber`, Name, `is_generate`
-    Elset(usize, String, bool),
-}
-
-impl InpSection {
-    fn parse_sections_from_input(file: &InpFile) -> Vec<InpSection> {
-        let mut sections: Vec<InpSection> = Vec::new();
-        for (nr, line) in file.0.lines().enumerate() {
-            if line == "*NODE" {
-                sections.push(InpSection::Node(nr));
-            } else if line.starts_with("*ELEMENT") {
-                sections.push(InpSection::Element(nr));
-            } else if line.starts_with("*NSET") {
-                let name = line
-                    .split(',')
-                    .find(|part| part.trim().starts_with("NSET="))
-                    .map_or("UNKNOWN".to_string(), |part| {
-                        part.split('=')
-                            .nth(1)
-                            .unwrap_or("UNKNOWN")
-                            .trim()
-                            .to_string()
-                    });
-
-                let is_generate = line
-                    .chars()
-                    .filter(|c| *c != ' ')
-                    .collect::<String>()
-                    .contains(",GENERATE");
-
-                sections.push(InpSection::Nset(nr, name, is_generate));
-            } else if line.starts_with("*ELSET") {
-                let name = line
-                    .split(',')
-                    .find(|part| part.trim().starts_with("ELSET="))
-                    .map_or("UNKNOWN".to_string(), |part| {
-                        part.split('=')
-                            .nth(1)
-                            .unwrap_or("UNKNOWN")
-                            .trim()
-                            .to_string()
-                    });
-
-                let is_generate = line
-                    .chars()
-                    .filter(|c| *c != ' ')
-                    .collect::<String>()
-                    .contains(",GENERATE");
-
-                sections.push(InpSection::Elset(nr, name, is_generate));
-            }
-        }
-        sections
     }
 }

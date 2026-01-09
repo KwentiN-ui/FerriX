@@ -1,6 +1,6 @@
-use crate::solver::parsing::preprocess_inp;
+use crate::solver::parser::preprocess_inp;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct InpFile(pub String);
 
 impl InpFile {

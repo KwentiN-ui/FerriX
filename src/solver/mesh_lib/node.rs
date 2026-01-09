@@ -1,8 +1,10 @@
 use nalgebra::Point3;
 
+use crate::solver::ids::NodeId;
+
 #[derive(Debug, Clone)]
 pub struct Node {
-    pub id: usize,
+    pub id: NodeId,
     pub x: f64,
     pub y: f64,
     pub z: f64,
@@ -15,7 +17,7 @@ impl Node {
         if delimited.len() != 4 {
             return None;
         }
-        let id = delimited.first()?.parse::<usize>().ok()?;
+        let id = NodeId(delimited.first()?.parse::<usize>().ok()?);
         let x = delimited.get(1)?.parse::<f64>().ok()?;
         let y = delimited.get(2)?.parse::<f64>().ok()?;
         let z = delimited.get(3)?.parse::<f64>().ok()?;

@@ -15,51 +15,6 @@ pub struct Material {
 }
 
 impl Material {
-    pub fn from_input(input: &InpFile) -> Vec<Self> {
-        let mut materials = Vec::new();
-
-        for (nr, line) in input.0.lines().enumerate() {
-            if line.starts_with("*MATERIAL") {
-                materials.push(Self::from_definition(input, nr));
-            }
-        }
-
-        materials
-    }
-    pub fn from_definition(input: &InpFile, line_nr: usize) -> Self {
-        let name = input
-            .0
-            .lines()
-            .nth(line_nr)
-            .unwrap()
-            .split('=')
-            .next_back()
-            .unwrap()
-            .to_string();
-
-        let mut material = Self {
-            name,
-            density: None,
-            elastic: None,
-        };
-
-        let mut lines = input.0.lines();
-        while let Some(line) = lines.next() {
-            if line.starts_with("*DENSITY") {
-                if let Some(def) = lines.next() {
-                    material.density = def.parse().ok();
-                }
-            } else if line.starts_with("*ELASTIC") {
-                if let Some(def) = lines.next() {
-                    let args: Vec<&str> = def.split(',').map(str::trim).collect();
-                    material.elastic = Some((args[0].parse().unwrap(), args[1].parse().unwrap()));
-                }
-            }
-        }
-
-        material
-    }
-
     /// constructs linear elastic materialmatrix D (6x6 for 3D)
     /// Voigt-Notation: xx, yy, zz, xy, yz, zx
     pub fn build_elastic_d_matrix(&self) -> Array2<f64> {
