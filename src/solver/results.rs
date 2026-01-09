@@ -13,6 +13,7 @@ pub enum FieldType {
 /// Holds values for one specific field (e.g. Displacements for all nodes)
 #[derive(Debug, Clone)]
 pub struct NodalResult {
+    #[allow(dead_code)]
     pub name: String, // e.g. "DISP"
     pub field_type: FieldType,
     /// Maps Node ID -> Vector of values (e.g. [dx, dy, dz])
@@ -33,7 +34,6 @@ impl NodalResult {
     }
 }
 
-// TODO
 /// Holds all results for a single step (e.g. "Step 1 - Static")
 #[allow(unused)]
 #[derive(Debug, Clone)]
@@ -42,7 +42,6 @@ pub struct StepResult {
     pub step_name: String,
     pub time_increment: f64,
     pub nodal_results: Vec<NodalResult>,
-    // later: element_results (for integration point data like stress)
 }
 
 impl StepResult {

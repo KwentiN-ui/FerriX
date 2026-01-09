@@ -1,4 +1,4 @@
-use crate::solver::ids::{ElementId, NodeId, LoadId, BoundaryConditionId};
+use crate::solver::ids::{BoundaryConditionId, ElementId, LoadId, NodeId};
 use crate::solver::inp::InpFile;
 use crate::solver::material::Material;
 use crate::solver::mesh_lib::elements::element::Element;
@@ -27,6 +27,8 @@ pub enum Keyword {
     Cload,
     EndStep,
     Heading,
+    NodeFile,
+    ElFile,
 }
 
 pub struct Parser<'a> {
@@ -68,7 +70,7 @@ impl<'a> Parser<'a> {
                 self.parse_keyword(line_content, &mut lines)?;
                 continue;
             }
-            
+
             let line_content = line_content.trim();
             if line_content.is_empty() {
                 continue;
@@ -78,16 +80,24 @@ impl<'a> Parser<'a> {
                 self.parse_data(line_content);
             }
         }
-        
+
         // Post-parsing steps, e.g. building node mappings
         self.project.mesh.build_node_mappings();
 
         Ok(self.project)
     }
 
-    fn parse_keyword(&mut self, line: &str, lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>) -> Result<(), String> {
+    fn parse_keyword(
+        &mut self,
+        line: &str,
+        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
+    ) -> Result<(), String> {
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
-        let keyword_str = parts[0].strip_prefix('*').unwrap_or("").trim().to_uppercase();
+        let keyword_str = parts[0]
+            .strip_prefix('*')
+            .unwrap_or("")
+            .trim()
+            .to_uppercase();
 
         if let Ok(keyword) = Keyword::from_str(&keyword_str.replace(' ', "_")) {
             self.current_keyword = Some(keyword);
@@ -142,11 +152,15 @@ impl<'a> Parser<'a> {
                         .materials
                         .iter()
                         .position(|m| m.name == material_name)
-                        .ok_or(format!("Material {material_name} not found for *SOLID SECTION"))?;
-                    
+                        .ok_or(format!(
+                            "Material {material_name} not found for *SOLID SECTION"
+                        ))?;
+
                     if let Some(element_ids) = self.project.mesh.element_sets.get(&elset) {
                         for &element_id in element_ids {
-                            self.project.element_materials.insert(element_id, material_index);
+                            self.project
+                                .element_materials
+                                .insert(element_id, material_index);
                         }
                     } else {
                         return Err(format!("Elset {elset} not found for *SOLID SECTION"));
@@ -178,6 +192,12 @@ impl<'a> Parser<'a> {
                 Keyword::Elastic => self.parse_elastic(line),
                 Keyword::Cload => self.parse_cload(line),
                 Keyword::Boundary => self.parse_boundary(line),
+                Keyword::NodeFile => {
+                    self.project.nodal_output.extend(line.split(',').map(str::trim).map(str::to_string));
+                }
+                Keyword::ElFile => {
+                    self.project.element_output.extend(line.split(',').map(str::trim).map(str::to_string));
+                }
                 _ => {} // For now
             }
         }

@@ -10,5 +10,7 @@ pub trait ResultWriter {
         path: &Path,
         mesh: &Mesh,
         step_result: &[StepResult],
+        nodal_output: &[String],
+        element_output: &[String],
     ) -> Result<(), Box<dyn Error>>;
 }

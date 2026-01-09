@@ -2,12 +2,15 @@ use crate::solver::{
     assembler::Assembler,
     preconditioner::DiagonalPreconditioner,
     project::Project,
+    results::{FieldType, NodalResult, StepResult},
     solvers::{iterative::IterativeSolver, Solver},
     state::SolutionState,
     step::boundary_conds::{BoundaryCondition, Load},
 };
 use sprs::CsMat;
 use std::error::Error;
+use std::collections::HashMap;
+use crate::solver::ids::NodeId;
 
 /// Represents a static analysis step in the FEA simulation.
 ///
@@ -41,10 +44,11 @@ impl StaticStep {
     /// * `solution_state` - A mutable reference to the global `SolutionState`.
     pub fn compute(
         &mut self,
+        step_id: usize,
         loads: &[Load],
         bcs: &[BoundaryCondition],
         solution_state: &mut SolutionState,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<StepResult, Box<dyn Error>> {
         // 1. Setup
         println!("Constructing global stiffness matrix");
         let num_nodes = self.project.mesh.nodes.len();
@@ -107,6 +111,78 @@ impl StaticStep {
             *displacement += delta_u[i];
         }
 
-        Ok(())
+        // --- Create results for this step ---
+        let mut step_res = StepResult::new(step_id, "Static Step", 1.0);
+
+        // Nodal results
+        let mut nodal_displacement = NodalResult::new("U", FieldType::Displacement);
+        let (nodal_stress, nodal_strain) = self.calculate_stress_strain(solution_state);
+
+        for (matrix_idx, &node_id) in self.project.mesh.index_to_node_id.iter().enumerate() {
+            let idx = matrix_idx * 3;
+            if idx + 2 < solution_state.displacements.len() {
+                let dx = solution_state.displacements[idx];
+                let dy = solution_state.displacements[idx + 1];
+                let dz = solution_state.displacements[idx + 2];
+                nodal_displacement.insert(node_id, vec![dx, dy, dz]);
+            }
+        }
+        step_res.nodal_results.push(nodal_displacement);
+        step_res.nodal_results.push(nodal_stress);
+        step_res.nodal_results.push(nodal_strain);
+
+        Ok(step_res)
+    }
+    
+    #[allow(clippy::cast_precision_loss)]
+    fn calculate_stress_strain(&self, solution_state: &SolutionState) -> (NodalResult, NodalResult) {
+        let mut nodal_stress = NodalResult::new("S", FieldType::Stress);
+        let mut nodal_strain = NodalResult::new("E", FieldType::Strain);
+        let mut node_element_count: HashMap<NodeId, usize> = HashMap::new();
+
+        for element in self.project.mesh.elements.values() {
+            let node_ids = element.get_node_ids();
+            let mut u_el = Vec::new();
+            for &node_id in node_ids {
+                if let Some(idx) = self.project.mesh.get_index_for_node_id(node_id) {
+                    let dof_start = idx * 3;
+                    u_el.extend_from_slice(&solution_state.displacements[dof_start..dof_start + 3]);
+                }
+            }
+
+            let material = &self.project.materials[self.project.element_materials[&element.get_id()]];
+            let d_matrix = material.build_elastic_d_matrix();
+            
+            // For now, we calculate at the center of the element (xi=0, eta=0, zeta=0)
+            let (strain, stress) = element.calculate_stress_strain(&d_matrix, &u_el, &self.project.mesh);
+
+            // This is a simple averaging scheme. A more sophisticated approach would be to
+            // extrapolate from Gauss points to nodes.
+            for &node_id in node_ids {
+                let count = node_element_count.entry(node_id).or_insert(0);
+                let current_stress = nodal_stress.data.entry(node_id).or_insert(vec![0.0; 6]);
+                let current_strain = nodal_strain.data.entry(node_id).or_insert(vec![0.0; 6]);
+                for i in 0..6 {
+                    current_stress[i] += stress[i];
+                    current_strain[i] += strain[i];
+                }
+                *count += 1;
+            }
+        }
+
+        for (node_id, count) in node_element_count {
+            if let Some(stress) = nodal_stress.data.get_mut(&node_id) {
+                for val in stress.iter_mut() {
+                    *val /= count as f64;
+                }
+            }
+            if let Some(strain) = nodal_strain.data.get_mut(&node_id) {
+                for val in strain.iter_mut() {
+                    *val /= count as f64;
+                }
+            }
+        }
+
+        (nodal_stress, nodal_strain)
     }
 }

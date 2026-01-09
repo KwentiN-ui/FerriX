@@ -25,7 +25,7 @@ use crate::solver::{
 /// as the primary container passed between different components of the solver.
 #[derive(Debug, Clone, Default)]
 pub struct Project {
-    /// The filepath to the `.inp` file, which serves as the job's identifier.
+    /// The filepath to the .inp file, which serves as the job's identifier.
     pub filepath: PathBuf,
     /// The finite element mesh, containing all nodes, elements, and sets.
     pub mesh: Box<Mesh>,
@@ -41,6 +41,10 @@ pub struct Project {
     pub loads: Vec<Load>,
     /// A collection of all boundary conditions (`*BOUNDARY`) defined in the model.
     pub bcs: Vec<BoundaryCondition>,
+    /// Nodal output variables requested by the user (e.g. `U`, `RF`).
+    pub nodal_output: Vec<String>,
+    /// Element output variables requested by the user (e.g. `S`, `E`).
+    pub element_output: Vec<String>,
 }
 
 impl Project {

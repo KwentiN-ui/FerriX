@@ -5,7 +5,7 @@ use rayon::ThreadPoolBuilder;
 use crate::solver::{
     io::{vtk::VtkWriter, writer::ResultWriter},
     project::Project,
-    results::{FieldType, NodalResult, StepResult},
+    results::StepResult,
     state::SolutionState,
     step::{static_step::StaticStep, steps::Step},
 };
@@ -41,25 +41,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Step::StaticStep => {
                 let mut step = StaticStep::new(project.clone());
                 println!("--- Step {step_id}: StaticStep ---");
-                match step.compute(&project.loads, &project.bcs, &mut solution_state) {
-                    Ok(()) => {
-                        println!("Step {step_id} completed.\n\n");
-                        // Store results for this step
-                        let mut nodal_result = NodalResult::new("U", FieldType::Displacement);
-                        for (matrix_idx, &node_id) in
-                            project.mesh.index_to_node_id.iter().enumerate()
-                        {
-                            let idx = matrix_idx * 3;
-                            if idx + 2 < solution_state.displacements.len() {
-                                let dx = solution_state.displacements[idx];
-                                let dy = solution_state.displacements[idx + 1];
-                                let dz = solution_state.displacements[idx + 2];
-                                nodal_result.insert(node_id, vec![dx, dy, dz]);
-                            }
-                        }
-                        let mut step_res = StepResult::new(step_id, "Static Step", 1.0);
-                        step_res.nodal_results.push(nodal_result);
+                match step.compute(step_id, &project.loads, &project.bcs, &mut solution_state) {
+                    Ok(step_res) => {
                         all_results.push(step_res);
+                        println!("Step {step_id} completed.\n\n");
                     }
                     Err(e) => {
                         eprintln!(
@@ -76,19 +61,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // write results
     if !all_results.is_empty() {
         let writer = VtkWriter;
-        let path = project
-            .filepath
-            .parent()
-            .unwrap()
-            .join(project.jobname() + ".vtk");
+        for (i, result) in all_results.iter().enumerate() {
+            let step_id = i + 1;
+            let path = project
+                .filepath
+                .parent()
+                .unwrap()
+                .join(format!("{}_step_{}.vtk", project.jobname(), step_id));
 
-        // We use the mesh from the last step (assuming no remeshing)
-        match writer.write(&path, &project.mesh.clone(), &all_results) {
-            Ok(()) => {
-                println!("Written results to {path:?}");
-            }
-            Err(e) => {
-                eprintln!("{e}");
+            match writer.write(
+                &path,
+                &project.mesh,
+                std::slice::from_ref(result),
+                &project.nodal_output,
+                &project.element_output,
+            ) {
+                Ok(()) => {
+                    println!("Written results to {}", path.display());
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                }
             }
         }
     }

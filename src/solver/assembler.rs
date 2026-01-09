@@ -83,7 +83,7 @@ impl Assembler {
     }
 }
 
-fn compute_element_stiffness(
+pub fn compute_element_stiffness(
     project: &Project,
     d_mat: &Array2<f64>,
     element: &Element,
@@ -121,7 +121,7 @@ fn compute_element_stiffness(
     Ok(k_el)
 }
 
-fn build_b_matrix(dn_global: &Array2<f64>, num_nodes: usize) -> Array2<f64> {
+pub fn build_b_matrix(dn_global: &Array2<f64>, num_nodes: usize) -> Array2<f64> {
     let num_dofs = num_nodes * 3;
     let mut b = Array2::<f64>::zeros((6, num_dofs));
 
@@ -144,7 +144,7 @@ fn build_b_matrix(dn_global: &Array2<f64>, num_nodes: usize) -> Array2<f64> {
     b
 }
 
-fn invert_jacobian_3x3(m: &Array2<f64>) -> Result<(f64, Array2<f64>), ()> {
+pub fn invert_jacobian_3x3(m: &Array2<f64>) -> Result<(f64, Array2<f64>), ()> {
     let det = m[[0, 0]] * (m[[1, 1]] * m[[2, 2]] - m[[2, 1]] * m[[1, 2]])
         - m[[0, 1]] * (m[[1, 0]] * m[[2, 2]] - m[[1, 2]] * m[[2, 0]])
         + m[[0, 2]] * (m[[1, 0]] * m[[2, 1]] - m[[1, 1]] * m[[2, 0]]);

@@ -1,5 +1,7 @@
+use crate::solver::assembler::{build_b_matrix, invert_jacobian_3x3};
 use crate::solver::ids::{ElementId, NodeId};
-use ndarray::Array2;
+use crate::solver::mesh_lib::mesh::Mesh;
+use ndarray::{Array1, Array2};
 use std::error::Error;
 use std::str::FromStr;
 
@@ -89,6 +91,37 @@ impl Element {
             Element::C3D4(..) => shape_func_c3d4(xi, eta, zeta),
             Element::C3D20(..) => shape_func_c3d20(xi, eta, zeta),
         }
+    }
+
+    pub fn calculate_stress_strain(
+        &self,
+        d_mat: &Array2<f64>,
+        u_el: &[f64],
+        mesh: &Mesh,
+    ) -> (Vec<f64>, Vec<f64>) {
+        let node_ids = self.get_node_ids();
+        let num_nodes = node_ids.len();
+
+        let mut node_coords = Array2::<f64>::zeros((3, num_nodes));
+        for (i, &node_id) in node_ids.iter().enumerate() {
+            let coords = mesh.nodes.get(&node_id).unwrap();
+            node_coords[[0, i]] = coords.x;
+            node_coords[[1, i]] = coords.y;
+            node_coords[[2, i]] = coords.z;
+        }
+
+        // For now, we calculate at the center of the element (xi=0, eta=0, zeta=0)
+        let (_, dn_local) = self.shape_functions(0.0, 0.0, 0.0);
+        let jacobian = dn_local.dot(&node_coords.t());
+        let (_, inv_j) = invert_jacobian_3x3(&jacobian).unwrap();
+        let dn_global = inv_j.dot(&dn_local);
+        let b_mat = build_b_matrix(&dn_global, num_nodes);
+
+        let u_el_array = Array1::from_vec(u_el.to_vec());
+        let strain = b_mat.dot(&u_el_array);
+        let stress = d_mat.dot(&strain);
+
+        (strain.to_vec(), stress.to_vec())
     }
 }
 
