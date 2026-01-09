@@ -1,3 +1,4 @@
+use crate::solver::ids::NodeId;
 use std::{error::Error, time::Duration};
 
 use indicatif::{ProgressBar, ProgressStyle};
@@ -26,7 +27,7 @@ impl StaticStep {
     }
 
     /// Helper: Resolves a string (Set Name or ID) to a list of Node IDs
-    fn resolve_target(&self, target: &str) -> Vec<usize> {
+    fn resolve_target(&self, target: &str) -> Vec<NodeId> {
         let t = target.trim();
         // Check Node Sets
         if let Some(ids) = self.project.mesh.node_sets.get(t) {
@@ -34,7 +35,7 @@ impl StaticStep {
         }
         // Try explicit Node ID
         if let Ok(id) = t.parse::<usize>() {
-            return vec![id];
+            return vec![NodeId(id)];
         }
         // Not found
         Vec::new()
@@ -348,7 +349,6 @@ impl StaticStep {
         Ok(k_el)
     }
 }
-
 /// Constructs the B-Matrix (6 x 3*Nodes)
 /// using Voigt notation: xx, yy, zz, xy, yz, zx
 fn build_b_matrix(dn_global: &Array2<f64>, num_nodes: usize) -> Array2<f64> {

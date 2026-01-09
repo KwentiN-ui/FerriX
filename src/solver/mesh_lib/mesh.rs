@@ -1,3 +1,4 @@
+use crate::solver::ids::{ElementId, NodeId};
 use std::collections::HashMap;
 
 use crate::solver::{
@@ -10,21 +11,22 @@ use crate::solver::{
 /// Contains all Node and Element Data
 #[derive(Debug, Clone, Default)]
 pub struct Mesh {
-    pub nodes: HashMap<usize, Node>,
-    pub elements: HashMap<usize, Element>,
-    pub node_sets: HashMap<String, Vec<usize>>,
-    pub element_sets: HashMap<String, Vec<usize>>,
+    pub nodes: HashMap<NodeId, Node>,
+    pub elements: HashMap<ElementId, Element>,
+    pub node_sets: HashMap<String, Vec<NodeId>>,
+    pub element_sets: HashMap<String, Vec<ElementId>>,
 
     /// Map: Node-ID (from INP) -> Matrix-Index (0..N)
-    pub node_id_to_index: HashMap<usize, usize>,
+    pub node_id_to_index: HashMap<NodeId, usize>,
     /// Map: Matrix-Index (0..N) -> Node-ID (from INP)
-    pub index_to_node_id: Vec<usize>,
+    pub index_to_node_id: Vec<NodeId>,
 }
 
 impl Mesh {
     pub fn build_node_mappings(&mut self) {
-        let mut sorted_ids: Vec<usize> = self.nodes.keys().copied().collect();
-        sorted_ids.sort_unstable();
+        let mut sorted_ids: Vec<NodeId> = self.nodes.keys().copied().collect();
+        // Cannot derive Ord for NodeId, so we sort by the inner value
+        sorted_ids.sort_unstable_by_key(|a| a.0);
 
         // Reverse Mapping (Index -> ID)
         self.index_to_node_id.clone_from(&sorted_ids);
@@ -38,7 +40,7 @@ impl Mesh {
     }
 
     /// Fetches the matrix-index for a given Node-ID (from INP file)
-    pub fn get_index_for_node_id(&self, id: usize) -> Option<usize> {
+    pub fn get_index_for_node_id(&self, id: NodeId) -> Option<usize> {
         self.node_id_to_index.get(&id).copied()
     }
 

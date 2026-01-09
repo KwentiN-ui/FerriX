@@ -1,3 +1,4 @@
+use crate::solver::ids::ElementId;
 use std::{
     collections::HashMap,
     error::Error,
@@ -24,7 +25,7 @@ pub struct Project {
     pub input: Box<InpFile>,
     pub materials: Vec<Material>,
     /// Map: Element-ID -> Material-Index
-    pub element_materials: HashMap<usize, usize>,
+    pub element_materials: HashMap<ElementId, usize>,
 }
 
 impl Project {

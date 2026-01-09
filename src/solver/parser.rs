@@ -1,3 +1,4 @@
+use crate::solver::ids::{ElementId, NodeId};
 use crate::solver::inp::InpFile;
 use crate::solver::material::Material;
 use crate::solver::mesh_lib::elements::element::Element;
@@ -164,181 +165,93 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-        fn parse_data(&mut self, line: &str) {
+    fn parse_data(&mut self, line: &str) {
+        if let Some(keyword) = self.current_keyword {
+            match keyword {
+                Keyword::Node => self.parse_node(line),
+                Keyword::Element => self.parse_element(line),
+                Keyword::Nset => self.parse_nset(line),
+                Keyword::Elset => self.parse_elset(line),
+                Keyword::Elastic => self.parse_elastic(line),
+                _ => {} // For now
+            }
+        }
+    }
 
-            if let Some(keyword) = self.current_keyword {
+    fn parse_node(&mut self, line: &str) {
+        if let Some(node) = Node::parse_line(line) {
+            self.project.mesh.nodes.insert(node.id, node);
+        }
+    }
 
-                match keyword {
-
-                    Keyword::Node => self.parse_node(line),
-
-                    Keyword::Element => self.parse_element(line),
-
-                    Keyword::Nset => self.parse_nset(line),
-
-                    Keyword::Elset => self.parse_elset(line),
-
-                    Keyword::Elastic => self.parse_elastic(line),
-
-                    _ => {} // For now
-
+    fn parse_element(&mut self, line: &str) {
+        if let Some(elem_type) = &self.element_type {
+            let elem = Element::parse_line(elem_type, line);
+            let elem_id = elem.get_id();
+            if let Some(elset_name) = &self.elset_name {
+                if !elset_name.is_empty() {
+                    self.project
+                        .mesh
+                        .element_sets
+                        .entry(elset_name.clone())
+                        .or_default()
+                        .push(elem_id);
                 }
-
             }
-
+            self.project.mesh.elements.insert(elem_id, elem);
         }
-
-    
-
-        fn parse_node(&mut self, line: &str) {
-
-            if let Some(node) = Node::parse_line(line) {
-
-                self.project.mesh.nodes.insert(node.id, node);
-
-            }
-
-        }
-
-    
-
-        fn parse_element(&mut self, line: &str) {
-
-            if let Some(elem_type) = &self.element_type {
-
-                let elem = Element::parse_line(elem_type, line);
-
-                let elem_id = elem.get_id();
-
-                if let Some(elset_name) = &self.elset_name {
-
-                    if !elset_name.is_empty() {
-
-                        self.project
-
-                            .mesh
-
-                            .element_sets
-
-                            .entry(elset_name.clone())
-
-                            .or_default()
-
-                            .push(elem_id);
-
-                    }
-
-                }
-
-                self.project.mesh.elements.insert(elem_id, elem);
-
-            }
-
-        }
-
-    
-
-        fn parse_nset(&mut self, line: &str) {
-
-            if let Some(name) = &self.set_name {
-
-                if self.is_generate {
-
-                    // TODO
-
-                } else {
-
-                                    let ids: Vec<usize> = line
-
-                                        .split(',')
-
-                                        .map(str::trim)
-
-                                        .filter(|s| !s.is_empty())
-
-                                        .filter_map(|s| s.parse().ok())
-
-                                        .collect();
-
-                    self.project.mesh.node_sets.entry(name.clone()).or_default().extend(ids);
-
-                }
-
-            }
-
-        }
-
-    
-
-        fn parse_elset(&mut self, line: &str) {
-
-            if let Some(name) = &self.set_name {
-
-                if self.is_generate {
-
-                    // TODO
-
-                } else {
-
-                                    let parts: Vec<usize> = line
-
-                                        .split(',')
-
-                                        .map(str::trim)
-
-                                        .filter(|s| !s.is_empty())
-
-                                        .filter_map(|s| s.parse().ok())
-
-                                        .collect();
-
-    
-
-                    if !line.contains(',') && parts.is_empty() {
-
-                        let other_elset_name = line.trim();
-
-                        let other_ids = self.project.mesh.element_sets.get(other_elset_name).cloned();
-
-                        if let Some(ids_to_add) = other_ids {
-
-                            self.project.mesh.element_sets.entry(name.clone()).or_default().extend(ids_to_add);
-
-                        }
-
-                    } else {
-
-                        self.project.mesh.element_sets.entry(name.clone()).or_default().extend(parts);
-
-                    }
-
-                }
-
-            }
-
-        }
-
-    
-
-        fn parse_elastic(&mut self, line: &str) {
-
-            if let Some(material) = self.project.materials.last_mut() {
-
-                let parts: Vec<f64> = line
-
+    }
+
+    fn parse_nset(&mut self, line: &str) {
+        if let Some(name) = &self.set_name {
+            if self.is_generate {
+                // TODO
+            } else {
+                let ids: Vec<NodeId> = line
                     .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .filter_map(|s| s.parse().ok().map(NodeId))
+                    .collect();
+                self.project.mesh.node_sets.entry(name.clone()).or_default().extend(ids);
+            }
+        }
+    }
 
-                    .filter_map(|s| s.trim().parse().ok())
-
+    fn parse_elset(&mut self, line: &str) {
+        if let Some(name) = &self.set_name {
+            if self.is_generate {
+                // TODO
+            } else {
+                let parts: Vec<ElementId> = line
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .filter_map(|s| s.parse().ok().map(ElementId))
                     .collect();
 
-                if parts.len() >= 2 {
-
-                    material.elastic = Some((parts[0], parts[1]));
-
+                if !line.contains(',') && parts.is_empty() {
+                    let other_elset_name = line.trim();
+                    let other_ids = self.project.mesh.element_sets.get(other_elset_name).cloned();
+                    if let Some(ids_to_add) = other_ids {
+                        self.project.mesh.element_sets.entry(name.clone()).or_default().extend(ids_to_add);
+                    }
+                } else {
+                    self.project.mesh.element_sets.entry(name.clone()).or_default().extend(parts);
                 }
-
             }
-
         }
+    }
+
+    fn parse_elastic(&mut self, line: &str) {
+        if let Some(material) = self.project.materials.last_mut() {
+            let parts: Vec<f64> = line
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            if parts.len() >= 2 {
+                material.elastic = Some((parts[0], parts[1]));
+            }
+        }
+    }
 }

@@ -1,3 +1,4 @@
+use crate::solver::ids::NodeId;
 use std::collections::HashMap;
 
 /// Types of fields we can store
@@ -15,7 +16,7 @@ pub struct NodalResult {
     pub name: String, // e.g. "DISP"
     pub field_type: FieldType,
     /// Maps Node ID -> Vector of values (e.g. [dx, dy, dz])
-    pub data: HashMap<usize, Vec<f64>>,
+    pub data: HashMap<NodeId, Vec<f64>>,
 }
 
 impl NodalResult {
@@ -27,7 +28,7 @@ impl NodalResult {
         }
     }
 
-    pub fn insert(&mut self, node_id: usize, values: Vec<f64>) {
+    pub fn insert(&mut self, node_id: NodeId, values: Vec<f64>) {
         self.data.insert(node_id, values);
     }
 }

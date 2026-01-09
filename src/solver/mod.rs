@@ -1,5 +1,6 @@
 //! This module contains code related to solving general FEA problems.
 
+pub mod ids;
 pub mod inp;
 pub mod io;
 pub mod material;

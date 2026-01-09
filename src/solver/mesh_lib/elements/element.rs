@@ -1,3 +1,4 @@
+use crate::solver::ids::{ElementId, NodeId};
 use ndarray::Array2;
 use std::error::Error;
 use std::str::FromStr;
@@ -12,12 +13,12 @@ use strum_macros::{EnumDiscriminants, EnumString};
 pub enum Element {
     // General 3D-Solids
     /// 4-node linear tetrahedral element
-    C3D4(usize, [usize; 4]),
+    C3D4(ElementId, [NodeId; 4]),
     /// 3D 20-node quadratic isoparametric element
-    C3D20(usize, [usize; 20]),
+    C3D20(ElementId, [NodeId; 20]),
     // TODO Shell elements
     // S8 (8-node quadratic shell element)
-    // S8(usize, [usize; 8]),
+    // S8(ElementId, [NodeId; 8]),
 }
 
 impl Element {
@@ -39,7 +40,9 @@ impl Element {
             .map(|s| s.trim().parse().expect("Integer conversion failed"))
             .collect();
 
-        let (&id, nodes) = nums.split_first().expect("Line empty");
+        let (&id, nodes_usize) = nums.split_first().expect("Line empty");
+        let id = ElementId(id);
+        let nodes: Vec<NodeId> = nodes_usize.iter().map(|&n| NodeId(n)).collect();
 
         // String -> ElementType
         let elem_type = ElementType::from_str(type_name)
@@ -60,14 +63,14 @@ impl Element {
         }
     }
 
-    pub fn get_id(&self) -> usize {
+    pub fn get_id(&self) -> ElementId {
         match self {
             Element::C3D20(id, _) | Element::C3D4(id, _) => *id,
         }
     }
 
     /// Get global Node IDs
-    pub fn get_node_ids(&self) -> &[usize] {
+    pub fn get_node_ids(&self) -> &[NodeId] {
         match self {
             Element::C3D4(_, n) => n,
             Element::C3D20(_, n) => n,
