@@ -7,7 +7,9 @@ use std::{
 
 use crate::solver::{
     inp::InpFile,
+    material::Material,
     mesh_lib::mesh::Mesh,
+    parsing::preprocess_inp,
     step::steps::{Step, StepKind},
 };
 
@@ -19,6 +21,7 @@ pub struct Project {
     pub mesh: Box<Mesh>,
     pub steps: Vec<Step>,
     pub input: Box<InpFile>,
+    pub materials: Vec<Material>,
 }
 
 impl Project {
@@ -60,16 +63,18 @@ impl Project {
         if let Some(out) = preprocess_output {
             fs::write(out, &input.0)?;
         }
-        let sections = parse_sections_from_str(&input);
+        let sections = InpSection::parse_sections_from_input(&input);
 
         let mesh = Mesh::from_sections(&input, &sections)?;
+        let materials = dbg!(Material::from_input(&input));
 
         let steps = parse_steps(&input);
 
         Ok(Self {
+            steps,
+            materials,
             filepath: path,
             mesh: mesh.into(),
-            steps,
             input: input.into(),
         })
     }
@@ -106,62 +111,6 @@ fn parse_steps(input: &InpFile) -> Vec<Step> {
     steps
 }
 
-fn parse_sections_from_str(file: &InpFile) -> Vec<InpSection> {
-    let mut sections: Vec<InpSection> = Vec::new();
-    for (nr, line) in file.0.lines().enumerate() {
-        if line == "*NODE" {
-            sections.push(InpSection::Node(nr));
-        } else if line.starts_with("*ELEMENT") {
-            sections.push(InpSection::Element(nr));
-        } else if line.starts_with("*NSET") {
-            let name = line
-                .split(',')
-                .find(|part| part.trim().starts_with("NSET="))
-                .map_or("UNKNOWN".to_string(), |part| {
-                    part.split('=')
-                        .nth(1)
-                        .unwrap_or("UNKNOWN")
-                        .trim()
-                        .to_string()
-                });
-
-            let is_generate = line
-                .chars()
-                .filter(|c| *c != ' ')
-                .collect::<String>()
-                .contains(",GENERATE");
-
-            sections.push(InpSection::Nset(nr, name, is_generate));
-        }
-    }
-    sections
-}
-
-/// This preprocess includes:
-/// - removing leading and trailing whitespaces
-/// - removing comments
-/// - making all text uppercase
-/// - merging lines that belong together (`,` at the end of line)
-/// - removes empty lines
-fn preprocess_inp(input_file: &str) -> String {
-    input_file
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(|line| line.chars().map(|c| c.to_uppercase().to_string()).collect())
-        // merge lines that end with `,`
-        .map(|line: String| {
-            if line.ends_with(',') {
-                line + " "
-            } else {
-                line + "\n"
-            }
-        })
-        // remove comments
-        .filter(|line| !line.starts_with("**"))
-        .collect()
-}
-
 /// Different types of sections of the .inp file and their line-number
 #[derive(Debug, PartialEq)]
 pub enum InpSection {
@@ -171,16 +120,35 @@ pub enum InpSection {
     Nset(usize, String, bool),
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl InpSection {
+    fn parse_sections_from_input(file: &InpFile) -> Vec<InpSection> {
+        let mut sections: Vec<InpSection> = Vec::new();
+        for (nr, line) in file.0.lines().enumerate() {
+            if line == "*NODE" {
+                sections.push(InpSection::Node(nr));
+            } else if line.starts_with("*ELEMENT") {
+                sections.push(InpSection::Element(nr));
+            } else if line.starts_with("*NSET") {
+                let name = line
+                    .split(',')
+                    .find(|part| part.trim().starts_with("NSET="))
+                    .map_or("UNKNOWN".to_string(), |part| {
+                        part.split('=')
+                            .nth(1)
+                            .unwrap_or("UNKNOWN")
+                            .trim()
+                            .to_string()
+                    });
 
-    #[test]
-    fn test_preprocess_inp() {
-        let inp = "**comment\n word  \n \t*keyword\n123.4\n4, 5, 6,\n7, 8, 9";
-        assert_eq!(
-            preprocess_inp(inp),
-            "WORD\n*KEYWORD\n123.4\n4, 5, 6, 7, 8, 9\n"
-        );
+                let is_generate = line
+                    .chars()
+                    .filter(|c| *c != ' ')
+                    .collect::<String>()
+                    .contains(",GENERATE");
+
+                sections.push(InpSection::Nset(nr, name, is_generate));
+            }
+        }
+        sections
     }
 }

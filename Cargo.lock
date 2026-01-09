@@ -149,25 +149,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ccx-rs"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "color-eyre",
- "glam 0.30.9",
- "indicatif",
- "itertools",
- "nalgebra",
- "ndarray",
- "rayon",
- "sprs",
- "strum",
- "strum_macros",
- "thiserror",
-]
-
-[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -323,6 +304,25 @@ checksum = "7cd915d99f24784cdc19fd37ef22b97e3ff0ae756c7e492e9fbfe897d61e2aec"
 dependencies = [
  "indenter",
  "once_cell",
+]
+
+[[package]]
+name = "ferrix"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "color-eyre",
+ "glam 0.30.9",
+ "indicatif",
+ "itertools",
+ "nalgebra",
+ "ndarray",
+ "rayon",
+ "sprs",
+ "strum",
+ "strum_macros",
+ "thiserror",
 ]
 
 [[package]]

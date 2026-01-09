@@ -554,8 +554,8 @@ Fixed, 1, 3
         let inp_file = InpFile(inp_file_content);
 
         // 3. Setup and run the StaticStep
-        let mut static_step = StaticStep::new(Box::new(inp_file), Box::new(mesh));
-        let result = static_step.compute();
+        let mut static_step = StaticStep::new(Box::new(inp_file), Box::new(mesh), 0);
+        let result = static_step.compute(1);
 
         // 4. Assert the results
         assert!(result.is_ok(), "Solver failed to compute");
@@ -831,8 +831,8 @@ Load, 3, -100.0
         let inp_file = InpFile(inp_file_content);
 
         // 3. Setup and run the StaticStep
-        let mut static_step = StaticStep::new(Box::new(inp_file), Box::new(mesh));
-        let result = static_step.compute();
+        let mut static_step = StaticStep::new(Box::new(inp_file), Box::new(mesh), 0);
+        let result = static_step.compute(1);
 
         // 4. Assert the results
         assert!(result.is_ok(), "Solver failed to compute");

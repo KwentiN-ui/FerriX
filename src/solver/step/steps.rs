@@ -8,8 +8,7 @@ pub enum Step {
 }
 
 impl StepKind {
-    /// If the step is to be included in the analysis, then
-    /// at least one line in the input file needs to pass `line.starts_with(step.keyword())`.
+    /// If a `*STEP` card is followed by this keyword, it will be included in the analysis.
     pub fn keyword(self) -> &'static str {
         match self {
             StepKind::StaticStep => "*STATIC",
