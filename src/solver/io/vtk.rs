@@ -74,60 +74,50 @@ impl ResultWriter for VtkWriter {
             writeln!(w, "POINT_DATA {num_nodes}")?;
 
             for step in results {
-                for field in &step.nodal_results {
-                    match field.field_type {
-                        FieldType::Displacement => {
-                            if nodal_output.contains(&"U".to_string()) {
-                                writeln!(w, "VECTORS U float")?;
-                                for &node_id in &mesh.index_to_node_id {
-                                    if let Some(val) = field.data.get(&node_id) {
-                                        writeln!(w, "{} {} {}", val[0], val[1], val[2])?;
-                                    } else {
-                                        writeln!(w, "0.0 0.0 0.0")?;
-                                    }
-                                }
-                            }
-                        }
-                        FieldType::Stress => {
-                            if element_output.contains(&"S".to_string()) {
-                                writeln!(w, "TENSORS S float")?;
-                                for &node_id in &mesh.index_to_node_id {
-                                    if let Some(val) = field.data.get(&node_id) {
-                                        writeln!(
-                                            w,
-                                            "{} {} {}
-{} {} {}
-{} {} {}",
-                                            val[0], val[3], val[5], val[3], val[1], val[4], val[5],
-                                            val[4], val[2]
-                                        )?;
-                                    } else {
-                                        writeln!(w, "0 0 0\n0 0 0\n0 0 0")?;
-                                    }
-                                }
-                            }
-                        }
-                        FieldType::Strain => {
-                            if element_output.contains(&"E".to_string()) {
-                                writeln!(w, "TENSORS E float")?;
-                                for &node_id in &mesh.index_to_node_id {
-                                    if let Some(val) = field.data.get(&node_id) {
-                                        writeln!(
-                                            w,
-                                            "{} {} {}
-{} {} {}
-{} {} {}",
-                                            val[0], val[3], val[5], val[3], val[1], val[4], val[5],
-                                            val[4], val[2]
-                                        )?;
-                                    } else {
-                                        writeln!(w, "0 0 0\n0 0 0\n0 0 0")?;
-                                    }
-                                }
+                // --- Displacement ---
+                if nodal_output.contains(&"U".to_string()) {
+                    if let Some(field) = step.nodal_results.iter().find(|f| f.field_type == FieldType::Displacement) {
+                        writeln!(w, "VECTORS U float")?;
+                        for &node_id in &mesh.index_to_node_id {
+                            if let Some(val) = field.data.get(&node_id) {
+                                writeln!(w, "{} {} {}", val[0], val[1], val[2])?;
+                            } else {
+                                writeln!(w, "0.0 0.0 0.0")?;
                             }
                         }
                     }
                 }
+                
+                // --- Stress ---
+                if element_output.contains(&"S".to_string()) {
+                    if let Some(field) = step.nodal_results.iter().find(|f| f.field_type == FieldType::Stress) {
+                        writeln!(w, "SCALARS S float 6")?;
+                        writeln!(w, "LOOKUP_TABLE default")?;
+                        for &node_id in &mesh.index_to_node_id {
+                            if let Some(val) = field.data.get(&node_id) {
+                                writeln!(w, "{} {} {} {} {} {}", val[0], val[1], val[2], val[3], val[4], val[5])?;
+                            } else {
+                                writeln!(w, "0.0 0.0 0.0 0.0 0.0 0.0")?;
+                            }
+                        }
+                    }
+                }
+
+                // --- Strain ---
+                if element_output.contains(&"E".to_string()) {
+                    if let Some(field) = step.nodal_results.iter().find(|f| f.field_type == FieldType::Strain) {
+                        writeln!(w, "SCALARS E float 6")?;
+                        writeln!(w, "LOOKUP_TABLE default")?;
+                        for &node_id in &mesh.index_to_node_id {
+                            if let Some(val) = field.data.get(&node_id) {
+                                writeln!(w, "{} {} {} {} {} {}", val[0], val[1], val[2], val[3], val[4], val[5])?;
+                            } else {
+                                writeln!(w, "0.0 0.0 0.0 0.0 0.0 0.0")?;
+                            }
+                        }
+                    }
+                }
+                
                 // --- MISES & TRESCA ---
                 if element_output.contains(&"S".to_string()) {
                     let stress_field = step

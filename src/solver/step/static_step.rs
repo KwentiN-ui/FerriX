@@ -152,9 +152,24 @@ impl StaticStep {
 
             let material = &self.project.materials[self.project.element_materials[&element.get_id()]];
             let d_matrix = material.build_elastic_d_matrix();
+
+            let mut avg_stress = [0.0; 6];
+            let mut avg_strain = [0.0; 6];
+            let integration_points = element.integration_points();
+            let num_ips = integration_points.len();
+
+            for ip in integration_points {
+                let (strain, stress) = element.calculate_stress_strain_at_ip(&d_matrix, &u_el, &self.project.mesh, ip.coords);
+                for i in 0..6 {
+                    avg_stress[i] += stress[i];
+                    avg_strain[i] += strain[i];
+                }
+            }
             
-            // For now, we calculate at the center of the element (xi=0, eta=0, zeta=0)
-            let (strain, stress) = element.calculate_stress_strain(&d_matrix, &u_el, &self.project.mesh);
+            for i in 0..6 {
+                avg_stress[i] /= num_ips as f64;
+                avg_strain[i] /= num_ips as f64;
+            }
 
             // This is a simple averaging scheme. A more sophisticated approach would be to
             // extrapolate from Gauss points to nodes.
@@ -163,8 +178,8 @@ impl StaticStep {
                 let current_stress = nodal_stress.data.entry(node_id).or_insert(vec![0.0; 6]);
                 let current_strain = nodal_strain.data.entry(node_id).or_insert(vec![0.0; 6]);
                 for i in 0..6 {
-                    current_stress[i] += stress[i];
-                    current_strain[i] += strain[i];
+                    current_stress[i] += avg_stress[i];
+                    current_strain[i] += avg_strain[i];
                 }
                 *count += 1;
             }

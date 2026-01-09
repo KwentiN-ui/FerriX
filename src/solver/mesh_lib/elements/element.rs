@@ -93,11 +93,12 @@ impl Element {
         }
     }
 
-    pub fn calculate_stress_strain(
+    pub fn calculate_stress_strain_at_ip(
         &self,
         d_mat: &Array2<f64>,
         u_el: &[f64],
         mesh: &Mesh,
+        ip_coords: [f64; 3],
     ) -> (Vec<f64>, Vec<f64>) {
         let node_ids = self.get_node_ids();
         let num_nodes = node_ids.len();
@@ -110,8 +111,7 @@ impl Element {
             node_coords[[2, i]] = coords.z;
         }
 
-        // For now, we calculate at the center of the element (xi=0, eta=0, zeta=0)
-        let (_, dn_local) = self.shape_functions(0.0, 0.0, 0.0);
+        let (_, dn_local) = self.shape_functions(ip_coords[0], ip_coords[1], ip_coords[2]);
         let jacobian = dn_local.dot(&node_coords.t());
         let (_, inv_j) = invert_jacobian_3x3(&jacobian).unwrap();
         let dn_global = inv_j.dot(&dn_local);
