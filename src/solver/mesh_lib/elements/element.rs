@@ -18,9 +18,6 @@ pub enum Element {
     C3D4(ElementId, [NodeId; 4]),
     /// 3D 20-node quadratic isoparametric element
     C3D20(ElementId, [NodeId; 20]),
-    // TODO Shell elements
-    // S8 (8-node quadratic shell element)
-    // S8(ElementId, [NodeId; 8]),
 }
 
 impl Element {

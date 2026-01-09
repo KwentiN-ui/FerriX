@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+// TODO differentiate between local and global IDs
 /// A typesafe Node ID
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub usize);
