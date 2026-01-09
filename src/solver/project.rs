@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     error::Error,
     fmt::Write,
     fs::{self, read_to_string},
@@ -22,7 +23,8 @@ pub struct Project {
     pub steps: Vec<Step>,
     pub input: Box<InpFile>,
     pub materials: Vec<Material>,
-    pub sections: Vec<Section>,
+    /// Map: Element-ID -> Material-Index
+    pub element_materials: HashMap<usize, usize>,
 }
 
 impl Project {
@@ -66,20 +68,44 @@ impl Project {
         }
         let inp_sections = InpSection::parse_sections_from_input(&input);
 
-        let sections = dbg!(SectionString::parse_input(&input));
+        let sections = SectionString::parse_input(&input);
 
         let mesh = Mesh::from_sections(&input, &inp_sections)?;
         let materials = Material::from_input(&input);
+
+        // --- Link materials to elements ---
+        let mut element_materials = HashMap::new();
+        // Create a helper map from material name to index
+        let material_name_to_index: HashMap<String, usize> = materials
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (m.name.clone(), i))
+            .collect();
+
+        for section in sections {
+            match section {
+                Section::SolidSection(elset_name, material_name) => {
+                    if let Some(material_index) = material_name_to_index.get(&material_name) {
+                        if let Some(element_ids) = mesh.element_sets.get(&elset_name) {
+                            for &element_id in element_ids {
+                                element_materials.insert(element_id, *material_index);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // --- End linking ---
 
         let steps = Step::parse_steps(&input);
 
         Ok(Self {
             steps,
             materials,
-            sections,
             filepath: path,
-            mesh: mesh.into(),
+            mesh: Box::new(mesh),
             input: input.into(),
+            element_materials,
         })
     }
 
@@ -101,6 +127,8 @@ pub enum InpSection {
     Element(usize),
     /// Stores: `LineNumber`, Name, `is_generate`
     Nset(usize, String, bool),
+    /// Stores: `LineNumber`, Name, `is_generate`
+    Elset(usize, String, bool),
 }
 
 impl InpSection {
@@ -130,6 +158,25 @@ impl InpSection {
                     .contains(",GENERATE");
 
                 sections.push(InpSection::Nset(nr, name, is_generate));
+            } else if line.starts_with("*ELSET") {
+                let name = line
+                    .split(',')
+                    .find(|part| part.trim().starts_with("ELSET="))
+                    .map_or("UNKNOWN".to_string(), |part| {
+                        part.split('=')
+                            .nth(1)
+                            .unwrap_or("UNKNOWN")
+                            .trim()
+                            .to_string()
+                    });
+
+                let is_generate = line
+                    .chars()
+                    .filter(|c| *c != ' ')
+                    .collect::<String>()
+                    .contains(",GENERATE");
+
+                sections.push(InpSection::Elset(nr, name, is_generate));
             }
         }
         sections

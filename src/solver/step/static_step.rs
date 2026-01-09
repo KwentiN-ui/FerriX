@@ -160,15 +160,13 @@ impl StaticStep {
         // 1. Setup
         println!("Constructing global stiffness matrix");
 
-        let num_nodes = self.project.mesh.index_to_node_id.len();
+        let num_nodes = self.project.mesh.nodes.len();
         if num_nodes == 0 {
             return Err("Mesh empty or mappings not initialized".into());
         }
         let num_dofs = num_nodes * 3;
 
         let mut triplet = TriMat::new((num_dofs, num_dofs));
-        // TODO: Material definition trough *SECTION card. Uses the first material for now.
-        let d_matrix = self.project.materials[0].build_elastic_d_matrix();
 
         // Init Force Vector F
         let mut f_global = vec![0.0; num_dofs];
@@ -189,6 +187,19 @@ impl StaticStep {
         let mut max_diag_val: f64 = 0.0;
 
         for element in self.project.mesh.elements.values() {
+            // --- Get material for this element ---
+            let material_index = self
+                .project
+                .element_materials
+                .get(&element.get_id())
+                .ok_or(format!(
+                    "Element {} has no material assigned.",
+                    element.get_id()
+                ))?;
+            let material = &self.project.materials[*material_index];
+            let d_matrix = material.build_elastic_d_matrix();
+            // --- End get material ---
+
             let k_el = self.compute_element_stiffness(&d_matrix, element)?;
             let node_ids = element.get_node_ids();
 
