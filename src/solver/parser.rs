@@ -57,17 +57,9 @@ impl<'a> Parser<'a> {
         let mut lines = self.input.0.lines().enumerate().peekable();
         while let Some((line_nr, line_content)) = lines.next() {
             self.line_nr = line_nr;
-            if line_content.starts_with("**") {
-                continue;
-            }
 
             if line_content.starts_with('*') {
                 self.parse_keyword(line_content, &mut lines)?;
-                continue;
-            }
-            
-            let line_content = line_content.trim();
-            if line_content.is_empty() {
                 continue;
             }
 
@@ -75,16 +67,24 @@ impl<'a> Parser<'a> {
                 self.parse_data(line_content);
             }
         }
-        
+
         // Post-parsing steps, e.g. building node mappings
         self.project.mesh.build_node_mappings();
 
         Ok(self.project)
     }
 
-    fn parse_keyword(&mut self, line: &str, lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>) -> Result<(), String> {
+    fn parse_keyword(
+        &mut self,
+        line: &str,
+        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
+    ) -> Result<(), String> {
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
-        let keyword_str = parts[0].strip_prefix('*').unwrap_or("").trim().to_uppercase();
+        let keyword_str = parts[0]
+            .strip_prefix('*')
+            .unwrap_or("")
+            .trim()
+            .to_uppercase();
 
         if let Ok(keyword) = Keyword::from_str(&keyword_str.replace(' ', "_")) {
             self.current_keyword = Some(keyword);
@@ -139,11 +139,15 @@ impl<'a> Parser<'a> {
                         .materials
                         .iter()
                         .position(|m| m.name == material_name)
-                        .ok_or(format!("Material {material_name} not found for *SOLID SECTION"))?;
-                    
+                        .ok_or(format!(
+                            "Material {material_name} not found for *SOLID SECTION"
+                        ))?;
+
                     if let Some(element_ids) = self.project.mesh.element_sets.get(&elset) {
                         for &element_id in element_ids {
-                            self.project.element_materials.insert(element_id, material_index);
+                            self.project
+                                .element_materials
+                                .insert(element_id, material_index);
                         }
                     } else {
                         return Err(format!("Elset {elset} not found for *SOLID SECTION"));
@@ -213,7 +217,12 @@ impl<'a> Parser<'a> {
                     .filter(|s| !s.is_empty())
                     .filter_map(|s| s.parse().ok().map(NodeId))
                     .collect();
-                self.project.mesh.node_sets.entry(name.clone()).or_default().extend(ids);
+                self.project
+                    .mesh
+                    .node_sets
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(ids);
             }
         }
     }
@@ -232,12 +241,27 @@ impl<'a> Parser<'a> {
 
                 if !line.contains(',') && parts.is_empty() {
                     let other_elset_name = line.trim();
-                    let other_ids = self.project.mesh.element_sets.get(other_elset_name).cloned();
+                    let other_ids = self
+                        .project
+                        .mesh
+                        .element_sets
+                        .get(other_elset_name)
+                        .cloned();
                     if let Some(ids_to_add) = other_ids {
-                        self.project.mesh.element_sets.entry(name.clone()).or_default().extend(ids_to_add);
+                        self.project
+                            .mesh
+                            .element_sets
+                            .entry(name.clone())
+                            .or_default()
+                            .extend(ids_to_add);
                     }
                 } else {
-                    self.project.mesh.element_sets.entry(name.clone()).or_default().extend(parts);
+                    self.project
+                        .mesh
+                        .element_sets
+                        .entry(name.clone())
+                        .or_default()
+                        .extend(parts);
                 }
             }
         }
@@ -253,5 +277,44 @@ impl<'a> Parser<'a> {
                 material.elastic = Some((parts[0], parts[1]));
             }
         }
+    }
+}
+
+/// This preprocess includes:
+/// - removing leading and trailing whitespaces
+/// - removing comments
+/// - making all text uppercase
+/// - merging lines that belong together (`,` at the end of line)
+/// - removes empty lines
+pub fn preprocess_inp(input_file: &str) -> String {
+    input_file
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.chars().map(|c| c.to_uppercase().to_string()).collect())
+        // merge lines that end with `,`
+        .map(|line: String| {
+            if line.ends_with(',') {
+                line + " "
+            } else {
+                line + "\n"
+            }
+        })
+        // remove comments
+        .filter(|line| !line.starts_with("**"))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_preprocess_inp() {
+        let inp = "**comment\n word  \n \t*keyword\n123.4\n4, 5, 6,\n7, 8, 9";
+        assert_eq!(
+            preprocess_inp(inp),
+            "WORD\n*KEYWORD\n123.4\n4, 5, 6, 7, 8, 9\n"
+        );
     }
 }
