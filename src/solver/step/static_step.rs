@@ -1,4 +1,5 @@
-use crate::solver::ids::NodeId;
+#[allow(unused_imports)]
+use crate::solver::ids::{NodeId, LoadId, BoundaryConditionId};
 use std::{error::Error, time::Duration};
 
 use indicatif::{ProgressBar, ProgressStyle};
@@ -15,149 +16,14 @@ use crate::solver::{
 #[derive(Debug, Clone)]
 pub struct StaticStep {
     project: Box<Project>,
-    line_number: usize,
 }
 
 impl StaticStep {
-    pub fn new(project: Box<Project>, line_number: usize) -> Self {
-        Self {
-            project,
-            line_number,
-        }
+    pub fn new(project: Box<Project>) -> Self {
+        Self { project }
     }
 
-    /// Helper: Resolves a string (Set Name or ID) to a list of Node IDs
-    fn resolve_target(&self, target: &str) -> Vec<NodeId> {
-        let t = target.trim();
-        // Check Node Sets
-        if let Some(ids) = self.project.mesh.node_sets.get(t) {
-            return ids.clone();
-        }
-        // Try explicit Node ID
-        if let Ok(id) = t.parse::<usize>() {
-            return vec![NodeId(id)];
-        }
-        // Not found
-        Vec::new()
-    }
-
-    pub fn parse_loads(&self) -> Vec<Load> {
-        let mut loads = Vec::new();
-        let mut lines = self
-            .project
-            .input
-            .0
-            .lines()
-            .skip(self.line_number)
-            .take_while(|line| !line.starts_with("*STEP"))
-            .peekable();
-
-        while let Some(line) = lines.next() {
-            let trimmed = line.trim();
-
-            if trimmed.starts_with("*CLOAD") {
-                // Read data lines until next keyword
-                while let Some(next_line) = lines.peek() {
-                    let data = next_line.trim();
-                    if data.starts_with('*') {
-                        break;
-                    }
-
-                    // Format: Node/Set, DOF, Value
-                    let parts: Vec<&str> = data.split(',').collect();
-                    if parts.len() >= 3 {
-                        let target_nodes = self.resolve_target(parts[0]);
-                        let dof_in: usize = parts[1].trim().parse().unwrap_or(0);
-                        let val: f64 = parts[2].trim().parse().unwrap_or(0.0);
-
-                        // DOF: Inp 1,2,3 -> Internal 0,1,2
-                        if (1..=3).contains(&dof_in) {
-                            for node_id in target_nodes {
-                                loads.push(Load {
-                                    node_id,
-                                    dof: dof_in - 1,
-                                    value: val,
-                                });
-                            }
-                        }
-                    }
-
-                    lines.next(); // Consume line
-                }
-            }
-        }
-
-        loads
-    }
-
-    pub fn parse_bcs(&self) -> Vec<BoundaryCondition> {
-        let mut bcs = Vec::new();
-        let mut lines = self
-            .project
-            .input
-            .0
-            .lines()
-            .skip(self.line_number)
-            .take_while(|line| !line.starts_with("*STEP"))
-            .peekable();
-
-        while let Some(line) = lines.next() {
-            let trimmed = line.trim();
-
-            if trimmed.starts_with("*BOUNDARY") {
-                // Read data lines
-                while let Some(next_line) = lines.peek() {
-                    let data = next_line.trim();
-                    if data.starts_with('*') {
-                        break;
-                    }
-
-                    // Format: Node/Set, FirstDOF, [LastDOF], [Value]
-                    let parts: Vec<&str> = data.split(',').collect();
-                    if parts.len() >= 2 {
-                        let target_nodes = self.resolve_target(parts[0]);
-
-                        let first_dof: usize = parts[1].trim().parse().unwrap_or(0);
-                        // If LastDOF is missing, default to FirstDOF
-                        let last_dof: usize = if parts.len() > 2 && !parts[2].trim().is_empty() {
-                            parts[2].trim().parse().unwrap_or(first_dof)
-                        } else {
-                            first_dof
-                        };
-
-                        // If Value is missing, default to 0.0 (Standard fixation)
-                        let val: f64 = if parts.len() > 3 {
-                            parts[3].trim().parse().unwrap_or(0.0)
-                        } else {
-                            0.0
-                        };
-
-                        for node_id in target_nodes {
-                            // Loop over DOFs (e.g. 1 to 3 => x, y, z)
-                            for dof_in in first_dof..=last_dof {
-                                if (1..=3).contains(&dof_in) {
-                                    bcs.push(BoundaryCondition {
-                                        node_id,
-                                        dof: dof_in - 1,
-                                        value: val,
-                                    });
-                                }
-                            }
-                        }
-                    }
-
-                    lines.next();
-                }
-            }
-        }
-
-        bcs
-    }
-
-    pub fn compute(&mut self, step_id: usize) -> Result<StepResult, Box<dyn Error>> {
-        let loads = self.parse_loads();
-        let bcs = self.parse_bcs();
-
+    pub fn compute(&mut self, step_id: usize, loads: &[Load], bcs: &[BoundaryCondition]) -> Result<StepResult, Box<dyn Error>> {
         // 1. Setup
         println!("Constructing global stiffness matrix");
 
@@ -349,6 +215,7 @@ impl StaticStep {
         Ok(k_el)
     }
 }
+
 /// Constructs the B-Matrix (6 x 3*Nodes)
 /// using Voigt notation: xx, yy, zz, xy, yz, zx
 fn build_b_matrix(dn_global: &Array2<f64>, num_nodes: usize) -> Array2<f64> {

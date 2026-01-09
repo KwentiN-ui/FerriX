@@ -1,9 +1,11 @@
-use crate::solver::ids::{ElementId, NodeId};
+use crate::solver::ids::{ElementId, NodeId, LoadId, BoundaryConditionId};
 use crate::solver::inp::InpFile;
 use crate::solver::material::Material;
 use crate::solver::mesh_lib::elements::element::Element;
+use crate::solver::mesh_lib::mesh::Mesh;
 use crate::solver::mesh_lib::node::Node;
 use crate::solver::project::Project;
+use crate::solver::step::boundary_conds::{BoundaryCondition, Load};
 use crate::solver::step::steps::Step;
 use std::str::FromStr;
 use strum_macros::EnumString;
@@ -37,6 +39,8 @@ pub struct Parser<'a> {
     elset_name: Option<String>,
     set_name: Option<String>,
     is_generate: bool,
+    load_id_counter: usize,
+    bc_id_counter: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -50,6 +54,8 @@ impl<'a> Parser<'a> {
             elset_name: None,
             set_name: None,
             is_generate: false,
+            load_id_counter: 0,
+            bc_id_counter: 0,
         }
     }
 
@@ -62,29 +68,26 @@ impl<'a> Parser<'a> {
                 self.parse_keyword(line_content, &mut lines)?;
                 continue;
             }
+            
+            let line_content = line_content.trim();
+            if line_content.is_empty() {
+                continue;
+            }
 
             if self.current_keyword.is_some() {
                 self.parse_data(line_content);
             }
         }
-
+        
         // Post-parsing steps, e.g. building node mappings
         self.project.mesh.build_node_mappings();
 
         Ok(self.project)
     }
 
-    fn parse_keyword(
-        &mut self,
-        line: &str,
-        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
-    ) -> Result<(), String> {
+    fn parse_keyword(&mut self, line: &str, lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>) -> Result<(), String> {
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
-        let keyword_str = parts[0]
-            .strip_prefix('*')
-            .unwrap_or("")
-            .trim()
-            .to_uppercase();
+        let keyword_str = parts[0].strip_prefix('*').unwrap_or("").trim().to_uppercase();
 
         if let Ok(keyword) = Keyword::from_str(&keyword_str.replace(' ', "_")) {
             self.current_keyword = Some(keyword);
@@ -139,24 +142,20 @@ impl<'a> Parser<'a> {
                         .materials
                         .iter()
                         .position(|m| m.name == material_name)
-                        .ok_or(format!(
-                            "Material {material_name} not found for *SOLID SECTION"
-                        ))?;
-
+                        .ok_or(format!("Material {material_name} not found for *SOLID SECTION"))?;
+                    
                     if let Some(element_ids) = self.project.mesh.element_sets.get(&elset) {
                         for &element_id in element_ids {
-                            self.project
-                                .element_materials
-                                .insert(element_id, material_index);
+                            self.project.element_materials.insert(element_id, material_index);
                         }
                     } else {
                         return Err(format!("Elset {elset} not found for *SOLID SECTION"));
                     }
                 }
                 Keyword::Step => {
-                    if let Some((next_nr, next_line)) = lines.peek() {
+                    if let Some((_next_nr, next_line)) = lines.peek() {
                         if next_line.starts_with("*STATIC") {
-                            self.project.steps.push(Step::StaticStep(*next_nr));
+                            self.project.steps.push(Step::StaticStep);
                         }
                     }
                 }
@@ -177,6 +176,8 @@ impl<'a> Parser<'a> {
                 Keyword::Nset => self.parse_nset(line),
                 Keyword::Elset => self.parse_elset(line),
                 Keyword::Elastic => self.parse_elastic(line),
+                Keyword::Cload => self.parse_cload(line),
+                Keyword::Boundary => self.parse_boundary(line),
                 _ => {} // For now
             }
         }
@@ -275,6 +276,85 @@ impl<'a> Parser<'a> {
                 .collect();
             if parts.len() >= 2 {
                 material.elastic = Some((parts[0], parts[1]));
+            }
+        }
+    }
+
+    fn parse_cload(&mut self, line: &str) {
+        let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+        if parts.len() >= 3 {
+            let target = parts[0];
+            let dof_in: usize = parts[1].trim().parse().unwrap_or(0);
+            let val: f64 = parts[2].trim().parse().unwrap_or(0.0);
+
+            let resolve_target = |target: &str, mesh: &Mesh| -> Vec<NodeId> {
+                let t = target.trim();
+                if let Some(ids) = mesh.node_sets.get(t) {
+                    return ids.clone();
+                }
+                if let Ok(id) = t.parse::<usize>() {
+                    return vec![NodeId(id)];
+                }
+                Vec::new()
+            };
+
+            let target_nodes = resolve_target(target, &self.project.mesh);
+
+            if (1..=3).contains(&dof_in) {
+                for node_id in target_nodes {
+                    self.project.loads.push(Load {
+                        id: LoadId(self.load_id_counter),
+                        node_id,
+                        dof: dof_in - 1,
+                        value: val,
+                    });
+                    self.load_id_counter += 1;
+                }
+            }
+        }
+    }
+
+    fn parse_boundary(&mut self, line: &str) {
+        let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+        if parts.len() >= 2 {
+            let target = parts[0];
+            let first_dof: usize = parts[1].trim().parse().unwrap_or(0);
+            let last_dof: usize = if parts.len() > 2 && !parts[2].trim().is_empty() {
+                parts[2].trim().parse().unwrap_or(first_dof)
+            } else {
+                first_dof
+            };
+            let val: f64 = if parts.len() > 3 {
+                parts[3].trim().parse().unwrap_or(0.0)
+            } else {
+                0.0
+            };
+
+            let resolve_target = |target: &str, mesh: &Mesh| -> Vec<NodeId> {
+                let t = target.trim();
+                if let Some(ids) = mesh.node_sets.get(t) {
+                    return ids.clone();
+                }
+                if let Ok(id) = t.parse::<usize>() {
+                    return vec![NodeId(id)];
+                }
+                Vec::new()
+            };
+
+            let target_nodes = resolve_target(target, &self.project.mesh);
+
+            for node_id in target_nodes {
+                for dof_in in first_dof..=last_dof {
+                    if (1..=3).contains(&dof_in) {
+                        self.project.bcs.push(BoundaryCondition {
+                            id: BoundaryConditionId(self.bc_id_counter),
+                            node_id,
+                            dof: dof_in - 1,
+                            value: val,
+                        });
+                        self.bc_id_counter += 1;
+                    }
+                }
             }
         }
     }

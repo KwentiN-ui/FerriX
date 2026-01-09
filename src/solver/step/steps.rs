@@ -4,7 +4,7 @@ use strum::{EnumDiscriminants, EnumIter};
 #[strum_discriminants(derive(EnumIter))]
 #[strum_discriminants(name(StepKind))]
 pub enum Step {
-    StaticStep(usize),
+    StaticStep,
 }
 
 impl Step {

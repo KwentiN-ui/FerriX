@@ -21,3 +21,23 @@ impl fmt::Display for ElementId {
         write!(f, "{}", self.0)
     }
 }
+
+/// A typesafe Load ID
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LoadId(pub usize);
+
+impl fmt::Display for LoadId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A typesafe `BoundaryCondition` ID
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BoundaryConditionId(pub usize);
+
+impl fmt::Display for BoundaryConditionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}

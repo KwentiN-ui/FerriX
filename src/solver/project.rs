@@ -12,7 +12,10 @@ use crate::solver::{
     material::Material,
     mesh_lib::mesh::Mesh,
     parser::Parser,
-    step::steps::Step,
+    step::{
+        boundary_conds::{BoundaryCondition, Load},
+        steps::Step,
+    },
 };
 
 /// This struct holds all relevant information from the `.inp` file
@@ -26,6 +29,8 @@ pub struct Project {
     pub materials: Vec<Material>,
     /// Map: Element-ID -> Material-Index
     pub element_materials: HashMap<ElementId, usize>,
+    pub loads: Vec<Load>,
+    pub bcs: Vec<BoundaryCondition>,
 }
 
 impl Project {

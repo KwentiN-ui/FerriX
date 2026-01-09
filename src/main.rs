@@ -29,10 +29,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (i, step_type) in project.steps.iter().enumerate() {
         let step_id = i + 1;
         match step_type {
-            Step::StaticStep(line) => {
-                let mut step = StaticStep::new(project.clone(), *line);
+            Step::StaticStep => {
+                let mut step = StaticStep::new(project.clone());
                 println!("--- Step {step_id}: StaticStep ---");
-                match step.compute(step_id) {
+                match step.compute(step_id, &project.loads, &project.bcs) {
                     Ok(res) => {
                         all_results.push(res);
                         println!("Step {step_id} completed.\n\n");
