@@ -5,7 +5,8 @@ use rayon::ThreadPoolBuilder;
 use crate::solver::{
     io::{vtk::VtkWriter, writer::ResultWriter},
     project::Project,
-    results::StepResult,
+    results::{FieldType, NodalResult, StepResult},
+    state::SolutionState,
     step::{static_step::StaticStep, steps::Step},
 };
 
@@ -21,8 +22,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let project = Box::new(Project::from_jobname(&args.jobname, None)?);
 
-    let mut all_results: Vec<StepResult> = Vec::new();
-
     println!("{}\n", Local::now().format("%d.%m.%y, %H:%M:%S"));
     println!("{LOGO}");
     println!("by Quentin Huss\n\n");
@@ -31,17 +30,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start_time = Utc::now();
 
-    // Solver thread
+    // --- Main solver loop ---
+    let num_dofs = project.mesh.nodes.len() * 3;
+    let mut solution_state = SolutionState::new(num_dofs);
+    let mut all_results: Vec<StepResult> = Vec::new();
+
     for (i, step_type) in project.steps.iter().enumerate() {
         let step_id = i + 1;
         match step_type {
             Step::StaticStep => {
                 let mut step = StaticStep::new(project.clone());
                 println!("--- Step {step_id}: StaticStep ---");
-                match step.compute(step_id, &project.loads, &project.bcs) {
-                    Ok(res) => {
-                        all_results.push(res);
+                match step.compute(&project.loads, &project.bcs, &mut solution_state) {
+                    Ok(()) => {
                         println!("Step {step_id} completed.\n\n");
+                        // Store results for this step
+                        let mut nodal_result = NodalResult::new("U", FieldType::Displacement);
+                        for (matrix_idx, &node_id) in
+                            project.mesh.index_to_node_id.iter().enumerate()
+                        {
+                            let idx = matrix_idx * 3;
+                            if idx + 2 < solution_state.displacements.len() {
+                                let dx = solution_state.displacements[idx];
+                                let dy = solution_state.displacements[idx + 1];
+                                let dz = solution_state.displacements[idx + 2];
+                                nodal_result.insert(node_id, vec![dx, dy, dz]);
+                            }
+                        }
+                        let mut step_res = StepResult::new(step_id, "Static Step", 1.0);
+                        step_res.nodal_results.push(nodal_result);
+                        all_results.push(step_res);
                     }
                     Err(e) => {
                         eprintln!(
@@ -53,6 +71,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+    // --- End main solver loop ---
+
     // write results
     if !all_results.is_empty() {
         let writer = VtkWriter;
@@ -65,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // We use the mesh from the last step (assuming no remeshing)
         match writer.write(&path, &project.mesh.clone(), &all_results) {
             Ok(()) => {
-                println!("Written results to disk!");
+                println!("Written results to {path:?}");
             }
             Err(e) => {
                 eprintln!("{e}");
