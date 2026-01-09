@@ -1,16 +1,14 @@
-use std::{collections::HashMap, error::Error};
+use std::collections::HashMap;
 
 use crate::solver::{
-    inp::InpFile,
     mesh_lib::{
         elements::element::{Element, ElementType},
         node::Node,
     },
-    project::InpSection,
 };
 
 /// Contains all Node and Element Data
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Mesh {
     pub nodes: HashMap<usize, Node>,
     pub elements: HashMap<usize, Element>,
@@ -24,189 +22,6 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    #[allow(clippy::too_many_lines)]
-    pub fn from_sections(
-        input_file: &InpFile,
-        sections: &Vec<InpSection>,
-    ) -> Result<Self, Box<dyn Error>> {
-        let mut elements = Vec::new();
-        let mut nodes: Option<Vec<Node>> = None;
-        let mut node_sets: HashMap<String, Vec<usize>> = HashMap::new();
-        let mut element_sets: HashMap<String, Vec<usize>> = HashMap::new();
-
-        for sec in sections {
-            match sec {
-                InpSection::Node(nr) => {
-                    nodes = Some(
-                        input_file
-                            .0
-                            .lines()
-                            .skip(*nr + 1)
-                            .map_while(Node::parse_line)
-                            .collect(),
-                    );
-                }
-                InpSection::Element(nr) => {
-                    let header_line = input_file.0.lines().nth(*nr).expect("Line number outside file");
-                    let elem_type = Element::parse_type_str_from_line(header_line)?;
-
-                    // Parse Elset from header line
-                    let elset_name = header_line
-                        .split(',')
-                        .find(|part| part.trim().starts_with("ELSET="))
-                        .map(|part| part.split('=').nth(1).unwrap_or("").trim().to_string());
-
-                    let new_elements: Vec<Element> = input_file
-                        .0
-                        .lines()
-                        .skip(nr + 1)
-                        .take_while(|line| !line.trim().starts_with('*') && !line.trim().is_empty())
-                        .map(|line| Element::parse_line(&elem_type, line))
-                        .collect();
-
-                    if let Some(name) = elset_name {
-                        if !name.is_empty() {
-                            let set = element_sets.entry(name).or_default();
-                            for elem in &new_elements {
-                                set.push(elem.get_id());
-                            }
-                        }
-                    }
-
-                    elements.extend(new_elements);
-                }
-                // Parse Node Sets
-                // Assumes `InpSection::Nset(line_index, name, is_generate)`
-                InpSection::Nset(nr, name, is_generate) => {
-                    let mut ids = Vec::new();
-
-                    // Read lines until next keyword (*)
-                    let data_lines = input_file
-                        .0
-                        .lines()
-                        .skip(nr + 1)
-                        .take_while(|line| !line.trim().starts_with('*'));
-
-                    if *is_generate {
-                        // Format: Start, End, Increment
-                        for line in data_lines {
-                            let nums: Vec<usize> = line
-                                .split(',')
-                                .map(str::trim)
-                                .filter(|s| !s.is_empty())
-                                .filter_map(|s| s.parse().ok())
-                                .collect();
-
-                            if nums.len() >= 2 {
-                                // At least Start, End
-                                let start = nums[0];
-                                let end = nums[1];
-                                let step = *nums.get(2).unwrap_or(&1); // Default step 1
-
-                                for id in (start..=end).step_by(step) {
-                                    ids.push(id);
-                                }
-                            }
-                        }
-                    } else {
-                        // Explicit List: 1, 2, 3, 4...
-                        for line in data_lines {
-                            let line_ids = line
-                                .split(',')
-                                .map(str::trim)
-                                .filter(|s| !s.is_empty())
-                                .filter_map(|s| s.parse::<usize>().ok());
-                            ids.extend(line_ids);
-                        }
-                    }
-                    node_sets.insert(name.clone(), ids);
-                }
-                InpSection::Elset(nr, name, is_generate) => {
-                    let mut ids = Vec::new();
-
-                    let data_lines: Vec<_> = input_file
-                        .0
-                        .lines()
-                        .skip(nr + 1)
-                        .take_while(|line| !line.trim().starts_with('*'))
-                        .map(|l| l.trim())
-                        .filter(|l| !l.is_empty())
-                        .collect();
-
-                    if *is_generate {
-                        // Format: Start, End, Increment
-                        for line in data_lines {
-                            let nums: Vec<usize> = line
-                                .split(',')
-                                .map(str::trim)
-                                .filter(|s| !s.is_empty())
-                                .filter_map(|s| s.parse().ok())
-                                .collect();
-
-                            if nums.len() >= 2 {
-                                // At least Start, End
-                                let start = nums[0];
-                                let end = nums[1];
-                                let step = *nums.get(2).unwrap_or(&1); // Default step 1
-
-                                for id in (start..=end).step_by(step) {
-                                    ids.push(id);
-                                }
-                            }
-                        }
-                    } else {
-                        // Can be a list of numbers or a name of another elset
-                        for line in data_lines {
-                            let parts: Vec<usize> = line
-                                .split(',')
-                                .map(str::trim)
-                                .filter(|s| !s.is_empty())
-                                .filter_map(|s| s.parse::<usize>().ok())
-                                .collect();
-                            
-                            if !line.contains(',') && parts.is_empty() {
-                                // It's a name of another elset
-                                let other_elset_name = line.trim();
-                                if let Some(other_ids) = element_sets.get(other_elset_name) {
-                                    ids.extend(other_ids.clone());
-                                }
-                            }
-                            else {
-                                // It's a list of numbers
-                                ids.extend(parts);
-                            }
-                        }
-                    }
-                    element_sets.insert(name.clone(), ids);
-                }
-            }
-        }
-
-        let mut node_hash: HashMap<usize, Node> = HashMap::new();
-        for node in nodes.ok_or("Input file missing *NODE card.")? {
-            node_hash.insert(node.id, node);
-        }
-
-        let mut elem_hash: HashMap<usize, Element> = HashMap::new();
-        for elem in elements {
-            elem_hash.insert(elem.get_id(), elem);
-        }
-
-        // 3. Construct Mesh with populated sets
-        let mut mesh = Self {
-            nodes: node_hash,
-            elements: elem_hash,
-            node_sets, // Pass the filled map
-            element_sets,
-            node_id_to_index: HashMap::new(),
-            index_to_node_id: Vec::new(),
-        };
-
-        mesh.build_node_mappings();
-
-        Ok(mesh)
-    }
-
     pub fn build_node_mappings(&mut self) {
         let mut sorted_ids: Vec<usize> = self.nodes.keys().copied().collect();
         sorted_ids.sort_unstable();
