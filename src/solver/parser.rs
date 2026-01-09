@@ -71,7 +71,7 @@ impl<'a> Parser<'a> {
             }
 
             if self.current_keyword.is_some() {
-                self.parse_data(line_content)?;
+                self.parse_data(line_content);
             }
         }
         
@@ -82,7 +82,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_keyword(&mut self, line: &str, lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>) -> Result<(), String> {
-        let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        let parts: Vec<&str> = line.split(',').map(str::trim).collect();
         let keyword_str = parts[0].strip_prefix('*').unwrap_or("").trim().to_uppercase();
 
         if let Ok(keyword) = Keyword::from_str(&keyword_str.replace(' ', "_")) {
@@ -138,14 +138,14 @@ impl<'a> Parser<'a> {
                         .materials
                         .iter()
                         .position(|m| m.name == material_name)
-                        .ok_or(format!("Material {} not found for *SOLID SECTION", material_name))?;
+                        .ok_or(format!("Material {material_name} not found for *SOLID SECTION"))?;
                     
                     if let Some(element_ids) = self.project.mesh.element_sets.get(&elset) {
                         for &element_id in element_ids {
                             self.project.element_materials.insert(element_id, material_index);
                         }
                     } else {
-                        return Err(format!("Elset {} not found for *SOLID SECTION", elset));
+                        return Err(format!("Elset {elset} not found for *SOLID SECTION"));
                     }
                 }
                 Keyword::Step => {
@@ -164,101 +164,181 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn parse_data(&mut self, line: &str) -> Result<(), String> {
-        if let Some(keyword) = self.current_keyword {
-            match keyword {
-                Keyword::Node => self.parse_node(line)?,
-                Keyword::Element => self.parse_element(line)?,
-                Keyword::Nset => self.parse_nset(line)?,
-                Keyword::Elset => self.parse_elset(line)?,
-                Keyword::Elastic => self.parse_elastic(line)?,
-                _ => {} // For now
-            }
-        }
-        Ok(())
-    }
+        fn parse_data(&mut self, line: &str) {
 
-    fn parse_node(&mut self, line: &str) -> Result<(), String> {
-        if let Some(node) = Node::parse_line(line) {
-            self.project.mesh.nodes.insert(node.id, node);
-        }
-        Ok(())
-    }
+            if let Some(keyword) = self.current_keyword {
 
-    fn parse_element(&mut self, line: &str) -> Result<(), String> {
-        if let Some(elem_type) = &self.element_type {
-            let elem = Element::parse_line(elem_type, line);
-            let elem_id = elem.get_id();
-            if let Some(elset_name) = &self.elset_name {
-                if !elset_name.is_empty() {
-                    self.project
-                        .mesh
-                        .element_sets
-                        .entry(elset_name.clone())
-                        .or_default()
-                        .push(elem_id);
+                match keyword {
+
+                    Keyword::Node => self.parse_node(line),
+
+                    Keyword::Element => self.parse_element(line),
+
+                    Keyword::Nset => self.parse_nset(line),
+
+                    Keyword::Elset => self.parse_elset(line),
+
+                    Keyword::Elastic => self.parse_elastic(line),
+
+                    _ => {} // For now
+
                 }
+
             }
-            self.project.mesh.elements.insert(elem_id, elem);
+
         }
-        Ok(())
-    }
 
-    fn parse_nset(&mut self, line: &str) -> Result<(), String> {
-        if let Some(name) = &self.set_name {
-            if self.is_generate {
-                // TODO
+    
+
+        fn parse_node(&mut self, line: &str) {
+
+            if let Some(node) = Node::parse_line(line) {
+
+                self.project.mesh.nodes.insert(node.id, node);
+
             }
-            else {
-                let ids: Vec<usize> = line
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .filter_map(|s| s.parse().ok())
-                    .collect();
-                self.project.mesh.node_sets.entry(name.clone()).or_default().extend(ids);
-            }
+
         }
-        Ok(())
-    }
 
-    fn parse_elset(&mut self, line: &str) -> Result<(), String> {
-        if let Some(name) = &self.set_name {
-            if self.is_generate {
-                // TODO
-            }
-            else {
-                let parts: Vec<usize> = line
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .filter_map(|s| s.parse::<usize>().ok())
-                    .collect();
+    
 
-                if !line.contains(',') && parts.is_empty() {
-                    let other_elset_name = line.trim();
-                    let other_ids = self.project.mesh.element_sets.get(other_elset_name).cloned();
-                    if let Some(ids_to_add) = other_ids {
-                        self.project.mesh.element_sets.entry(name.clone()).or_default().extend(ids_to_add);
+        fn parse_element(&mut self, line: &str) {
+
+            if let Some(elem_type) = &self.element_type {
+
+                let elem = Element::parse_line(elem_type, line);
+
+                let elem_id = elem.get_id();
+
+                if let Some(elset_name) = &self.elset_name {
+
+                    if !elset_name.is_empty() {
+
+                        self.project
+
+                            .mesh
+
+                            .element_sets
+
+                            .entry(elset_name.clone())
+
+                            .or_default()
+
+                            .push(elem_id);
+
                     }
-                } else {
-                    self.project.mesh.element_sets.entry(name.clone()).or_default().extend(parts);
-                }
-            }
-        }
-        Ok(())
-    }
 
-    fn parse_elastic(&mut self, line: &str) -> Result<(), String> {
-        if let Some(material) = self.project.materials.last_mut() {
-            let parts: Vec<f64> = line
-                .split(',')
-                .filter_map(|s| s.trim().parse().ok())
-                .collect();
-            if parts.len() >= 2 {
-                material.elastic = Some((parts[0], parts[1]));
+                }
+
+                self.project.mesh.elements.insert(elem_id, elem);
+
             }
+
         }
-        Ok(())
-    }
+
+    
+
+        fn parse_nset(&mut self, line: &str) {
+
+            if let Some(name) = &self.set_name {
+
+                if self.is_generate {
+
+                    // TODO
+
+                } else {
+
+                                    let ids: Vec<usize> = line
+
+                                        .split(',')
+
+                                        .map(str::trim)
+
+                                        .filter(|s| !s.is_empty())
+
+                                        .filter_map(|s| s.parse().ok())
+
+                                        .collect();
+
+                    self.project.mesh.node_sets.entry(name.clone()).or_default().extend(ids);
+
+                }
+
+            }
+
+        }
+
+    
+
+        fn parse_elset(&mut self, line: &str) {
+
+            if let Some(name) = &self.set_name {
+
+                if self.is_generate {
+
+                    // TODO
+
+                } else {
+
+                                    let parts: Vec<usize> = line
+
+                                        .split(',')
+
+                                        .map(str::trim)
+
+                                        .filter(|s| !s.is_empty())
+
+                                        .filter_map(|s| s.parse().ok())
+
+                                        .collect();
+
+    
+
+                    if !line.contains(',') && parts.is_empty() {
+
+                        let other_elset_name = line.trim();
+
+                        let other_ids = self.project.mesh.element_sets.get(other_elset_name).cloned();
+
+                        if let Some(ids_to_add) = other_ids {
+
+                            self.project.mesh.element_sets.entry(name.clone()).or_default().extend(ids_to_add);
+
+                        }
+
+                    } else {
+
+                        self.project.mesh.element_sets.entry(name.clone()).or_default().extend(parts);
+
+                    }
+
+                }
+
+            }
+
+        }
+
+    
+
+        fn parse_elastic(&mut self, line: &str) {
+
+            if let Some(material) = self.project.materials.last_mut() {
+
+                let parts: Vec<f64> = line
+
+                    .split(',')
+
+                    .filter_map(|s| s.trim().parse().ok())
+
+                    .collect();
+
+                if parts.len() >= 2 {
+
+                    material.elastic = Some((parts[0], parts[1]));
+
+                }
+
+            }
+
+        }
 }

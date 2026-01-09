@@ -29,7 +29,7 @@ pub struct Project {
 
 impl Project {
     pub fn new() -> Self {
-        Default::default()
+        Project::default()
     }
 
     pub fn get_info(&self) -> String {
