@@ -7,4 +7,5 @@ pub mod mesh_lib;
 pub mod parsing;
 pub mod project;
 pub mod results;
+pub mod section;
 pub mod step;

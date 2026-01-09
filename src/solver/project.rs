@@ -9,8 +9,8 @@ use crate::solver::{
     inp::InpFile,
     material::Material,
     mesh_lib::mesh::Mesh,
-    parsing::preprocess_inp,
-    step::steps::{Step, StepKind},
+    section::{Section, SectionString},
+    step::steps::Step,
 };
 
 /// This struct holds all relevant information from the `.inp` file
@@ -22,6 +22,7 @@ pub struct Project {
     pub steps: Vec<Step>,
     pub input: Box<InpFile>,
     pub materials: Vec<Material>,
+    pub sections: Vec<Section>,
 }
 
 impl Project {
@@ -59,20 +60,23 @@ impl Project {
         }
 
         // read and process the input
-        let input: InpFile = InpFile(preprocess_inp(&read_to_string(&path)?));
+        let input: InpFile = InpFile::new(&read_to_string(&path)?);
         if let Some(out) = preprocess_output {
             fs::write(out, &input.0)?;
         }
-        let sections = InpSection::parse_sections_from_input(&input);
+        let inp_sections = InpSection::parse_sections_from_input(&input);
 
-        let mesh = Mesh::from_sections(&input, &sections)?;
-        let materials = dbg!(Material::from_input(&input));
+        let sections = dbg!(SectionString::parse_input(&input));
 
-        let steps = parse_steps(&input);
+        let mesh = Mesh::from_sections(&input, &inp_sections)?;
+        let materials = Material::from_input(&input);
+
+        let steps = Step::parse_steps(&input);
 
         Ok(Self {
             steps,
             materials,
+            sections,
             filepath: path,
             mesh: mesh.into(),
             input: input.into(),
@@ -88,27 +92,6 @@ impl Project {
             .expect("There is no reason why this should fail")
             .to_string()
     }
-}
-
-/// This functions searches the input file for known step-types. These are later in the order defined here.
-use strum::IntoEnumIterator;
-fn parse_steps(input: &InpFile) -> Vec<Step> {
-    let mut steps = Vec::new();
-    let mut lines = input.0.lines().enumerate().peekable();
-
-    while let Some((_, line)) = lines.next() {
-        if line.starts_with("*STEP") {
-            if let Some((next_nr, next_line)) = lines.peek() {
-                for step in StepKind::iter() {
-                    if next_line.starts_with(step.keyword()) {
-                        steps.push(step.create(*next_nr));
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    steps
 }
 
 /// Different types of sections of the .inp file and their line-number
