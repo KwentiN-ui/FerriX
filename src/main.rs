@@ -13,13 +13,7 @@ mod solver;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let project = Project::from_jobname(&args.jobname, None)?;
-
-    let steps = project.steps.clone();
-    let filepath = project.filepath.clone();
-    // clone is fine here, it's just the pointer
-    let input = project.input.clone();
-    let mesh = project.mesh.clone();
+    let project = Box::new(Project::from_jobname(&args.jobname, None)?);
 
     let mut all_results: Vec<StepResult> = Vec::new();
 
@@ -32,11 +26,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_time = Utc::now();
 
     // Solver thread
-    for (i, step_type) in steps.iter().enumerate() {
+    for (i, step_type) in project.steps.iter().enumerate() {
         let step_id = i + 1;
         match step_type {
             Step::StaticStep(line) => {
-                let mut step = StaticStep::new(input.clone(), mesh.clone(), *line);
+                let mut step = StaticStep::new(project.clone(), *line);
                 println!("--- Step {step_id}: StaticStep ---");
                 match step.compute(step_id) {
                     Ok(res) => {
@@ -56,10 +50,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // write results
     if !all_results.is_empty() {
         let writer = VtkWriter;
-        let path = filepath.parent().unwrap().join(project.jobname() + ".vtk");
+        let path = project
+            .filepath
+            .parent()
+            .unwrap()
+            .join(project.jobname() + ".vtk");
 
         // We use the mesh from the last step (assuming no remeshing)
-        match writer.write(&path, &mesh.clone(), &all_results) {
+        match writer.write(&path, &project.mesh.clone(), &all_results) {
             Ok(()) => {
                 println!("Written results to disk!");
             }
