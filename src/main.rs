@@ -1,5 +1,6 @@
 use chrono::{Local, Utc};
 use clap::Parser;
+use rayon::ThreadPoolBuilder;
 
 use crate::solver::{
     io::{vtk::VtkWriter, writer::ResultWriter},
@@ -12,6 +13,11 @@ mod solver;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
+    // Build and install the global thread pool
+    ThreadPoolBuilder::new()
+        .num_threads(args.num_threads.unwrap_or(0)) // 0 means use default (num logical cores)
+        .build_global()?;
 
     let project = Box::new(Project::from_jobname(&args.jobname, None)?);
 
@@ -81,6 +87,10 @@ pub struct Args {
     /// Output path to write the preprocessed .inp file into. Useful for debugging
     #[arg(short, long)]
     preprocessed_output: Option<String>,
+
+    /// The number of threads to use for the analysis. Defaults to the number of logical cores.
+    #[arg(short, long)]
+    num_threads: Option<usize>,
 }
 
 const LOGO: &str = r" _____ _____ ____  ____  _ ___  _

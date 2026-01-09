@@ -1,11 +1,9 @@
-use crate::solver::assembler::Assembler;
-#[allow(unused_imports)]
-use crate::solver::ids::{BoundaryConditionId, LoadId, NodeId};
 use crate::solver::{
+    assembler::Assembler,
     preconditioner::DiagonalPreconditioner,
     project::Project,
     results::{FieldType, NodalResult, StepResult},
-    solver::{IterativeSolver, Solver},
+    solvers::{iterative::IterativeSolver, Solver},
     step::boundary_conds::{BoundaryCondition, Load},
 };
 use sprs::CsMat;

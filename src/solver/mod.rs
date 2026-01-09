@@ -11,5 +11,5 @@ pub mod preconditioner;
 pub mod project;
 pub mod results;
 pub mod section;
-pub mod solver;
+pub mod solvers;
 pub mod step;
