@@ -1,16 +1,16 @@
+use crate::solver::ids::NodeId;
 use crate::solver::{
     assembler::Assembler,
     preconditioner::DiagonalPreconditioner,
     project::Project,
     results::{FieldType, NodalResult, StepResult},
-    solvers::{iterative::IterativeSolver, Solver},
+    solvers::{Solver, iterative::IterativeSolver},
     state::SolutionState,
     step::boundary_conds::{BoundaryCondition, Load},
 };
 use sprs::CsMat;
-use std::error::Error;
 use std::collections::HashMap;
-use crate::solver::ids::NodeId;
+use std::error::Error;
 
 /// Represents a static analysis step in the FEA simulation.
 ///
@@ -133,9 +133,12 @@ impl StaticStep {
 
         Ok(step_res)
     }
-    
+
     #[allow(clippy::cast_precision_loss)]
-    fn calculate_stress_strain(&self, solution_state: &SolutionState) -> (NodalResult, NodalResult) {
+    fn calculate_stress_strain(
+        &self,
+        solution_state: &SolutionState,
+    ) -> (NodalResult, NodalResult) {
         let mut nodal_stress = NodalResult::new("S", FieldType::Stress);
         let mut nodal_strain = NodalResult::new("E", FieldType::Strain);
         let mut node_element_count: HashMap<NodeId, usize> = HashMap::new();
@@ -150,7 +153,8 @@ impl StaticStep {
                 }
             }
 
-            let material = &self.project.materials[self.project.element_materials[&element.get_id()]];
+            let material =
+                &self.project.materials[self.project.element_materials[&element.get_id()]];
             let d_matrix = material.build_elastic_d_matrix();
 
             let mut avg_stress = [0.0; 6];
@@ -159,13 +163,18 @@ impl StaticStep {
             let num_ips = integration_points.len();
 
             for ip in integration_points {
-                let (strain, stress) = element.calculate_stress_strain_at_ip(&d_matrix, &u_el, &self.project.mesh, ip.coords);
+                let (strain, stress) = element.calculate_stress_strain_at_ip(
+                    &d_matrix,
+                    &u_el,
+                    &self.project.mesh,
+                    &ip,
+                );
                 for i in 0..6 {
                     avg_stress[i] += stress[i];
                     avg_strain[i] += strain[i];
                 }
             }
-            
+
             for i in 0..6 {
                 avg_stress[i] /= num_ips as f64;
                 avg_strain[i] /= num_ips as f64;

@@ -86,6 +86,7 @@ impl Element {
         }
     }
 
+    /// Retrieves the element types shape functions.
     pub fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (Vec<f64>, Array2<f64>) {
         match self {
             Element::C3D4(..) => shape_func_c3d4(xi, eta, zeta),
@@ -98,8 +99,9 @@ impl Element {
         d_mat: &Array2<f64>,
         u_el: &[f64],
         mesh: &Mesh,
-        ip_coords: [f64; 3],
+        ip_coords: &GaussPoint,
     ) -> (Vec<f64>, Vec<f64>) {
+        let ip_coords = ip_coords.coords;
         let node_ids = self.get_node_ids();
         let num_nodes = node_ids.len();
 
