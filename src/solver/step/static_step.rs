@@ -2,6 +2,7 @@ use crate::solver::assembler::Assembler;
 #[allow(unused_imports)]
 use crate::solver::ids::{BoundaryConditionId, LoadId, NodeId};
 use crate::solver::{
+    preconditioner::DiagonalPreconditioner,
     project::Project,
     results::{FieldType, NodalResult, StepResult},
     solver::{IterativeSolver, Solver},
@@ -64,8 +65,7 @@ impl StaticStep {
                 if global_dof < num_dofs {
                     f_global[global_dof] += load.value;
                 }
-            }
-            else {
+            } else {
                 eprintln!("Warning: Load on unknown node {}", load.node_id);
             }
         }
@@ -97,8 +97,9 @@ impl StaticStep {
             k_global.nnz()
         );
 
+        let preconditioner = DiagonalPreconditioner::new(&k_global);
         let solver = IterativeSolver;
-        let u = solver.solve(&k_global, &f_global, 1e-8, 10000)?;
+        let u = solver.solve(&k_global, &f_global, Some(&preconditioner), 1e-8, 10000)?;
 
         let u_norm: f64 = u.iter().map(|x| x * x).sum::<f64>().sqrt();
         println!("Solution converged. Displacement Norm: {u_norm:.4e}");

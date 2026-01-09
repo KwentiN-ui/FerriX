@@ -1,5 +1,7 @@
+use crate::solver::preconditioner::Preconditioner;
 use indicatif::{ProgressBar, ProgressStyle};
 use ndarray::ArrayView1;
+use rayon::prelude::*;
 use sprs::CsMat;
 use std::time::Duration;
 
@@ -15,6 +17,7 @@ pub trait Solver {
     ///
     /// * `k_global` - The global stiffness matrix `K` as a compressed sparse row (CSR) matrix.
     /// * `f_global` - The global force vector `F` as a slice.
+    /// * `preconditioner` - An optional preconditioner to accelerate convergence.
     /// * `tol` - The tolerance for convergence.
     /// * `max_iter` - The maximum number of iterations allowed.
     ///
@@ -26,14 +29,15 @@ pub trait Solver {
         &self,
         k_global: &CsMat<f64>,
         f_global: &[f64],
+        preconditioner: Option<&dyn Preconditioner>,
         tol: f64,
         max_iter: usize,
     ) -> Result<Vec<f64>, String>;
 }
 
-/// An iterative solver using the Conjugate Gradient (CG) method.
+/// An iterative solver using the Preconditioned Conjugate Gradient (PCG) method.
 ///
-/// This is a specific implementation of the `Solver` trait that uses the CG method,
+/// This is a specific implementation of the `Solver` trait that uses the PCG method,
 /// which is well-suited for large, sparse, symmetric, and positive-definite systems
 /// commonly found in FEA.
 pub struct IterativeSolver;
@@ -43,6 +47,7 @@ impl Solver for IterativeSolver {
         &self,
         k: &CsMat<f64>,
         b: &[f64],
+        preconditioner: Option<&dyn Preconditioner>,
         tol: f64,
         max_iter: usize,
     ) -> Result<Vec<f64>, String> {
@@ -55,47 +60,48 @@ impl Solver for IterativeSolver {
         let b_len = b.len();
         let mut x = vec![0.0; b_len]; // Initial guess x0 = 0
 
-        // r = b - K * x0  (since x0=0 -> r=b)
         let mut r = b.to_vec();
-        let mut p = r.clone();
+        let mut z = if let Some(p) = preconditioner {
+            p.apply(&r)
+        } else {
+            r.clone()
+        };
+        let mut p = z.clone();
+        
+        let mut rs_old: f64 = r.par_iter().zip(&z).map(|(&r_val, &z_val)| r_val * z_val).sum();
 
-        // r_old = r^T * r
-        let mut rs_old: f64 = r.iter().map(|v| v * v).sum();
-
-        for _ in 0..max_iter {
-            spinner.set_message(format!("Residual: {rs_old:.6}"));
+        for i in 0..max_iter {
+            spinner.set_message(format!("Iteration: {i}, Residual: {rs_old:.6}"));
             if rs_old.sqrt() < tol {
                 spinner.finish();
                 return Ok(x);
             }
 
-            // Ap = K * p
             let p_view = ArrayView1::from(&p);
             let ap = (k * &p_view).to_vec();
 
-            // alpha = rs_old / (p^T * Ap)
-            let p_dot_ap: f64 = p.iter().zip(&ap).map(|(pi, api)| pi * api).sum();
-            if p_dot_ap.abs() < 1e-15 {
-                return Err("CG breakdown: denominator zero (matrix singular?)".to_string());
+            let alpha = rs_old / p.par_iter().zip(&ap).map(|(&p_val, &ap_val)| p_val * ap_val).sum::<f64>();
+
+            x.par_iter_mut().zip(&p).for_each(|(x_val, &p_val)| {
+                *x_val += alpha * p_val;
+            });
+            r.par_iter_mut().zip(&ap).for_each(|(r_val, &ap_val)| {
+                *r_val -= alpha * ap_val;
+            });
+
+            if let Some(precond) = preconditioner {
+                z = precond.apply(&r);
+            } else {
+                z = r.clone();
             }
-            let alpha = rs_old / p_dot_ap;
 
-            // x = x + alpha * p
-            // r = r - alpha * Ap
-            for j in 0..b_len {
-                x[j] += alpha * p[j];
-                r[j] -= alpha * ap[j];
-            }
-
-            let rs_new: f64 = r.iter().map(|v| v * v).sum();
-
-            // beta = rs_new / rs_old
+            let rs_new: f64 = r.par_iter().zip(&z).map(|(&r_val, &z_val)| r_val * z_val).sum();
+            
             let beta = rs_new / rs_old;
 
-            // p = r + beta * p
-            for j in 0..b_len {
-                p[j] = r[j] + beta * p[j];
-            }
+            p.par_iter_mut().zip(&z).for_each(|(p_val, &z_val)| {
+                *p_val = z_val + beta * *p_val;
+            });
 
             rs_old = rs_new;
         }
