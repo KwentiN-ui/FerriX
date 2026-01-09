@@ -3,9 +3,28 @@ use crate::solver::project::Project;
 use ndarray::Array2;
 use sprs::TriMat;
 
+/// Responsible for assembling the global stiffness matrix (`K`).
+///
+/// This struct iterates through all finite elements in the mesh, calculates
+/// each element's local stiffness matrix, and assembles them into a single,
+/// sparse global stiffness matrix in triplet format.
 pub struct Assembler;
 
 impl Assembler {
+    /// Assembles the global stiffness matrix for the entire project.
+    ///
+    /// This function performs the core assembly loop:
+    /// 1. Iterates over each element in the mesh.
+    /// 2. Fetches the material properties for the element.
+    /// 3. Calculates the element's local stiffness matrix (`k_el`).
+    /// 4. Maps the local degrees of freedom to the global system.
+    /// 5. Adds the `k_el` values into the global `Triplet` matrix.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing:
+    /// * A `TriMat<f64>` representing the global stiffness matrix in triplet format.
+    /// * The maximum absolute value found on the diagonal, used for the penalty method.
     pub fn assemble(project: &Project) -> Result<(TriMat<f64>, f64), String> {
         let num_nodes = project.mesh.nodes.len();
         if num_nodes == 0 {

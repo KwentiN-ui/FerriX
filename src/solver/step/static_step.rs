@@ -10,6 +10,11 @@ use crate::solver::{
 use sprs::CsMat;
 use std::error::Error;
 
+/// Represents a static analysis step in the FEA simulation.
+///
+/// This struct holds the state and logic required to perform a linear static analysis,
+/// which solves the equation `K * u = F`, where `K` is the global stiffness matrix,
+/// `u` is the displacement vector, and `F` is the external force vector.
 #[derive(Debug, Clone)]
 pub struct StaticStep {
     project: Box<Project>,
@@ -20,6 +25,21 @@ impl StaticStep {
         Self { project }
     }
 
+    /// Executes the static analysis step.
+    ///
+    /// This is the main entry point for running the simulation for this step. It orchestrates
+    /// the entire process, including:
+    /// 1. Assembling the global stiffness matrix `K`.
+    /// 2. Constructing the global force vector `F`.
+    /// 3. Applying boundary conditions to the system of equations.
+    /// 4. Solving for the displacement vector `u`.
+    /// 5. Storing the results.
+    ///
+    /// # Arguments
+    ///
+    /// * `step_id` - A unique identifier for the current analysis step.
+    /// * `loads` - A slice of `Load` structs representing the external forces.
+    /// * `bcs` - A slice of `BoundaryCondition` structs representing the constraints.
     pub fn compute(
         &mut self,
         step_id: usize,
@@ -44,7 +64,8 @@ impl StaticStep {
                 if global_dof < num_dofs {
                     f_global[global_dof] += load.value;
                 }
-            } else {
+            }
+            else {
                 eprintln!("Warning: Load on unknown node {}", load.node_id);
             }
         }

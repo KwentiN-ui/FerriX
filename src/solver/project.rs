@@ -18,18 +18,28 @@ use crate::solver::{
     },
 };
 
-/// This struct holds all relevant information from the `.inp` file
+/// Represents the central data structure for a single FEA problem.
+///
+/// This struct aggregates all the necessary information parsed from an `.inp` file,
+/// including the mesh, materials, steps, loads, and boundary conditions. It serves
+/// as the primary container passed between different components of the solver.
 #[derive(Debug, Clone, Default)]
 pub struct Project {
-    /// The filepath to the .inp file.
+    /// The filepath to the `.inp` file, which serves as the job's identifier.
     pub filepath: PathBuf,
+    /// The finite element mesh, containing all nodes, elements, and sets.
     pub mesh: Box<Mesh>,
+    /// A vector of analysis steps to be executed in sequence.
     pub steps: Vec<Step>,
+    /// The preprocessed content of the input file, stored for reference.
     pub input: Box<InpFile>,
+    /// A list of all materials defined in the model.
     pub materials: Vec<Material>,
-    /// Map: Element-ID -> Material-Index
+    /// A map that links each `ElementId` to its corresponding material's index in the `materials` vector.
     pub element_materials: HashMap<ElementId, usize>,
+    /// A collection of all concentrated loads (`*CLOAD`) defined in the model.
     pub loads: Vec<Load>,
+    /// A collection of all boundary conditions (`*BOUNDARY`) defined in the model.
     pub bcs: Vec<BoundaryCondition>,
 }
 
