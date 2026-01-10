@@ -83,7 +83,7 @@ impl Element {
         }
     }
 
-    /// Retrieves the element types shape functions.
+    /// Retrieves the element types shape functions, and shape function derivatives.
     pub fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (Vec<f64>, Array2<f64>) {
         match self {
             Element::C3D4(..) => shape_func_c3d4(xi, eta, zeta),
