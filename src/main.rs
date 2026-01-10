@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build and install the global thread pool
     ThreadPoolBuilder::new()
-        .num_threads(args.num_threads.unwrap_or(0)) // 0 means use default (num logical cores)
+        .num_threads(args.num_threads.unwrap_or(4)) // 0 means use default (num logical cores)
         .build_global()?;
 
     let project = Box::new(Project::from_jobname(&args.jobname, None)?);
@@ -63,11 +63,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let writer = VtkWriter;
         for (i, result) in all_results.iter().enumerate() {
             let step_id = i + 1;
-            let path = project
-                .filepath
-                .parent()
-                .unwrap()
-                .join(format!("{}_step_{}.vtk", project.jobname(), step_id));
+            let path = project.filepath.parent().unwrap().join(format!(
+                "{}_step_{}.vtk",
+                project.jobname(),
+                step_id
+            ));
 
             match writer.write(
                 &path,
@@ -101,7 +101,7 @@ pub struct Args {
     #[arg(short, long)]
     preprocessed_output: Option<String>,
 
-    /// The number of threads to use for the analysis. Defaults to the number of logical cores.
+    /// The number of threads to use for the analysis. Defaults to 4.
     #[arg(short, long)]
     num_threads: Option<usize>,
 }
