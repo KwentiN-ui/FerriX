@@ -1,2 +1,3 @@
 /target
 /test_inputs/*.vtk
+/test_inputs/models/*.vtk

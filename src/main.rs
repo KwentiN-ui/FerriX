@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
 pub struct Args {
-    /// The jobname. `CalculiX` will look for `<jobname>.inp`.
+    /// The jobname. `FerriX` will look for `<jobname>.inp`.
     jobname: String,
 
     /// The number of threads to use for the analysis. 0 will use system CPU count.
