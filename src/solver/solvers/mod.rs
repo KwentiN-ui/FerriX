@@ -33,3 +33,10 @@ pub trait Solver {
         max_iter: usize,
     ) -> Result<Vec<f64>, String>;
 }
+
+#[derive(Debug, Clone)]
+pub enum SolverType {
+    Direct,
+    Iterative,
+    Default,
+}

@@ -1,4 +1,5 @@
 use crate::solver::ids::NodeId;
+use crate::solver::solvers::SolverType;
 use crate::solver::solvers::direct::DirectSolver;
 use crate::solver::{
     assembler::Assembler,
@@ -49,6 +50,7 @@ impl StaticStep {
         loads: &[Load],
         bcs: &[BoundaryCondition],
         solution_state: &mut SolutionState,
+        solver: &SolverType,
     ) -> Result<StepResult, Box<dyn Error>> {
         // 1. Setup
         println!("Constructing global stiffness matrix");
@@ -94,7 +96,7 @@ impl StaticStep {
         let k_global: CsMat<f64> = triplet.to_csr();
 
         println!(
-            "System assembled. K: {}x{}, NNZ: {}. Solving...",
+            "System assembled. K: {}x{}, NNZ: {}",
             k_global.rows(),
             k_global.cols(),
             k_global.nnz()
@@ -102,11 +104,14 @@ impl StaticStep {
 
         let preconditioner = DiagonalPreconditioner::new(&k_global);
         // let solver = IterativeSolver;
-        let solver = DirectSolver;
+        let solver: Box<dyn Solver> = match solver {
+            SolverType::Default | SolverType::Direct => Box::new(DirectSolver),
+            SolverType::Iterative => Box::new(IterativeSolver),
+        };
         let delta_u = solver.solve(&k_global, &f_global, Some(&preconditioner), 1e-8, 10000)?;
 
         let u_norm: f64 = delta_u.iter().map(|x| x * x).sum::<f64>().sqrt();
-        println!("Solution converged. Displacement Norm: {u_norm:.4e}");
+        println!("Solution found. Displacement Norm: {u_norm:.4e}");
 
         // 6. Update global solution state
         for (i, displacement) in solution_state.displacements.iter_mut().enumerate() {

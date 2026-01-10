@@ -5,6 +5,7 @@ use crate::solver::mesh_lib::elements::element::Element;
 use crate::solver::mesh_lib::mesh::Mesh;
 use crate::solver::mesh_lib::node::Node;
 use crate::solver::project::Project;
+use crate::solver::solvers::SolverType;
 use crate::solver::step::boundary_conds::{BoundaryCondition, Load};
 use crate::solver::step::steps::Step;
 use std::str::FromStr;
@@ -169,7 +170,18 @@ impl<'a> Parser<'a> {
                 Keyword::Step => {
                     if let Some((_next_nr, next_line)) = lines.peek() {
                         if next_line.starts_with("*STATIC") {
-                            self.project.steps.push(Step::StaticStep);
+                            let solver = next_line
+                                .split(',')
+                                .find_map(|part| {
+                                    let (key, val) = part.split_once('=')?;
+                                    match (key.trim(), val.trim()) {
+                                        ("SOLVER", "DIRECT") => Some(SolverType::Direct),
+                                        ("SOLVER", "ITERATIVE") => Some(SolverType::Iterative),
+                                        _ => None,
+                                    }
+                                })
+                                .unwrap_or(SolverType::Default);
+                            self.project.steps.push(Step::StaticStep(solver));
                         }
                     }
                 }
@@ -391,7 +403,7 @@ impl<'a> Parser<'a> {
 /// - merging lines that belong together (`,` at the end of line)
 /// - removes empty lines
 pub fn preprocess_inp(input_file: &str) -> String {
-    input_file
+    let preprocessed: String = input_file
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
@@ -406,7 +418,25 @@ pub fn preprocess_inp(input_file: &str) -> String {
         })
         // remove comments
         .filter(|line| !line.starts_with("**"))
-        .collect()
+        .collect();
+    substitute_ccx_solvers(preprocessed)
+}
+
+use aho_corasick::AhoCorasick;
+
+/// Maps the common `CalculiX` Solvers to supported `Ferrix` solvers.
+pub fn substitute_ccx_solvers(input_file: String) -> String {
+    let patterns = &[
+        "ITERATIVE CHOLESKY",
+        "ITERATIVE SCALING",
+        "PASTIX",
+        "PARDISO",
+        "SPOOLES",
+    ];
+    let replaces = &["ITERATIVE", "ITERATIVE", "DIRECT", "DIRECT", "DIRECT"];
+
+    let ac = AhoCorasick::new(patterns).unwrap();
+    ac.replace_all(&input_file, replaces)
 }
 
 #[cfg(test)]

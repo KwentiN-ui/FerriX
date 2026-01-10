@@ -16,8 +16,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Build and install the global thread pool
+    let n_threads = args.num_threads;
     ThreadPoolBuilder::new()
-        .num_threads(args.num_threads.unwrap_or(4)) // 0 means use default (num logical cores)
+        .num_threads(n_threads.unwrap_or(4))
         .build_global()?;
 
     let project = Box::new(Project::from_jobname(&args.jobname, None)?);
@@ -26,7 +27,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{LOGO}");
     println!("by Quentin Huss\n\n");
 
-    println!("{}\n", project.get_info());
+    println!("{}", project.get_info());
+    println!(
+        "Using {} Thread(s)\nTry --help for more info\n\n",
+        n_threads.unwrap_or(1)
+    );
 
     let start_time = Utc::now();
 
@@ -38,10 +43,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (i, step_type) in project.steps.iter().enumerate() {
         let step_id = i + 1;
         match step_type {
-            Step::StaticStep => {
+            Step::StaticStep(solver) => {
                 let mut step = StaticStep::new(project.clone());
                 println!("--- Step {step_id}: StaticStep ---");
-                match step.compute(step_id, &project.loads, &project.bcs, &mut solution_state) {
+                match step.compute(
+                    step_id,
+                    &project.loads,
+                    &project.bcs,
+                    &mut solution_state,
+                    solver,
+                ) {
                     Ok(step_res) => {
                         all_results.push(step_res);
                         println!("Step {step_id} completed.\n\n");
@@ -86,8 +97,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("Analysis done, have a nice day!");
-    println!("{:.2}s", (Utc::now() - start_time).as_seconds_f64());
+    println!("Job finished");
+    println!(
+        "________________________________________\nTotal FerriX Time: {:.3}s\n________________________________________",
+        (Utc::now() - start_time).as_seconds_f64()
+    );
     Ok(())
 }
 

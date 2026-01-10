@@ -5,6 +5,7 @@ edition = "2024"
 repository = "https://github.com/KwentiN-ui/ferrix.git"
 
 [dependencies]
+aho-corasick = "1.1.4"
 chrono = "0.4.42"
 clap = { version = "4.5.54", features = ["derive"] }
 color-eyre = "0.6.5"
