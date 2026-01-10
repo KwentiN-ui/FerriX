@@ -1,6 +1,7 @@
 use crate::solver::preconditioner::Preconditioner;
 use sprs::CsMat;
 
+pub mod direct;
 pub mod iterative;
 
 /// A trait for linear system solvers.

@@ -1,4 +1,5 @@
 use crate::solver::ids::NodeId;
+use crate::solver::solvers::direct::DirectSolver;
 use crate::solver::{
     assembler::Assembler,
     preconditioner::DiagonalPreconditioner,
@@ -100,7 +101,8 @@ impl StaticStep {
         );
 
         let preconditioner = DiagonalPreconditioner::new(&k_global);
-        let solver = IterativeSolver;
+        // let solver = IterativeSolver;
+        let solver = DirectSolver;
         let delta_u = solver.solve(&k_global, &f_global, Some(&preconditioner), 1e-8, 10000)?;
 
         let u_norm: f64 = delta_u.iter().map(|x| x * x).sum::<f64>().sqrt();

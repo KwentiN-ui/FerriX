@@ -9,6 +9,7 @@ chrono = "0.4.42"
 clap = { version = "4.5.54", features = ["derive"] }
 color-eyre = "0.6.5"
 derive_more = {version="2.1.1", features=["full"]}
+faer = "0.23.2"
 indicatif = "0.18.3"
 itertools = "0.14.0"
 nalgebra = "0.34.1"
