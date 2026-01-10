@@ -2,19 +2,18 @@
 
 use derive_more::{Deref, Display, From, Into};
 
-// TODO differentiate between local and global IDs
-/// A typesafe Node ID
+/// Node ID as defined in the INP File
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From, Into, Deref)]
 pub struct NodeId(pub usize);
 
-/// A typesafe Element ID
+/// Element ID as defined in the INP File
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From, Into, Deref)]
 pub struct ElementId(pub usize);
 
-/// A typesafe Load ID
+/// Unique identifier for a `Load`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From, Into, Deref)]
 pub struct LoadId(pub usize);
 
-/// A typesafe `BoundaryCondition` ID
+/// Unique identifier for a `BoundaryCondition`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, From, Into, Deref)]
 pub struct BoundaryConditionId(pub usize);
