@@ -55,7 +55,6 @@ impl ResultWriter for VtkWriter {
                     cell_types.push(10); // VTK_TETRA
                     list_size += 5;
                 }
-                Element::C3D20(_, _nodes) => todo!("This is not supported yet!"),
             }
         }
 
@@ -76,7 +75,11 @@ impl ResultWriter for VtkWriter {
             for step in results {
                 // --- Displacement ---
                 if nodal_output.contains(&"U".to_string()) {
-                    if let Some(field) = step.nodal_results.iter().find(|f| f.field_type == FieldType::Displacement) {
+                    if let Some(field) = step
+                        .nodal_results
+                        .iter()
+                        .find(|f| f.field_type == FieldType::Displacement)
+                    {
                         writeln!(w, "VECTORS U float")?;
                         for &node_id in &mesh.index_to_node_id {
                             if let Some(val) = field.data.get(&node_id) {
@@ -87,15 +90,23 @@ impl ResultWriter for VtkWriter {
                         }
                     }
                 }
-                
+
                 // --- Stress ---
                 if element_output.contains(&"S".to_string()) {
-                    if let Some(field) = step.nodal_results.iter().find(|f| f.field_type == FieldType::Stress) {
+                    if let Some(field) = step
+                        .nodal_results
+                        .iter()
+                        .find(|f| f.field_type == FieldType::Stress)
+                    {
                         writeln!(w, "SCALARS S float 6")?;
                         writeln!(w, "LOOKUP_TABLE default")?;
                         for &node_id in &mesh.index_to_node_id {
                             if let Some(val) = field.data.get(&node_id) {
-                                writeln!(w, "{} {} {} {} {} {}", val[0], val[1], val[2], val[3], val[4], val[5])?;
+                                writeln!(
+                                    w,
+                                    "{} {} {} {} {} {}",
+                                    val[0], val[1], val[2], val[3], val[4], val[5]
+                                )?;
                             } else {
                                 writeln!(w, "0.0 0.0 0.0 0.0 0.0 0.0")?;
                             }
@@ -105,19 +116,27 @@ impl ResultWriter for VtkWriter {
 
                 // --- Strain ---
                 if element_output.contains(&"E".to_string()) {
-                    if let Some(field) = step.nodal_results.iter().find(|f| f.field_type == FieldType::Strain) {
+                    if let Some(field) = step
+                        .nodal_results
+                        .iter()
+                        .find(|f| f.field_type == FieldType::Strain)
+                    {
                         writeln!(w, "SCALARS E float 6")?;
                         writeln!(w, "LOOKUP_TABLE default")?;
                         for &node_id in &mesh.index_to_node_id {
                             if let Some(val) = field.data.get(&node_id) {
-                                writeln!(w, "{} {} {} {} {} {}", val[0], val[1], val[2], val[3], val[4], val[5])?;
+                                writeln!(
+                                    w,
+                                    "{} {} {} {} {} {}",
+                                    val[0], val[1], val[2], val[3], val[4], val[5]
+                                )?;
                             } else {
                                 writeln!(w, "0.0 0.0 0.0 0.0 0.0 0.0")?;
                             }
                         }
                     }
                 }
-                
+
                 // --- MISES & TRESCA ---
                 if element_output.contains(&"S".to_string()) {
                     let stress_field = step
@@ -157,12 +176,13 @@ impl ResultWriter for VtkWriter {
                                 let s12 = val[3];
                                 let s23 = val[4];
                                 let s13 = val[5];
-                                let stress_matrix = Matrix3::new(
-                                    s11, s12, s13, s12, s22, s23, s13, s23, s33,
-                                );
+                                let stress_matrix =
+                                    Matrix3::new(s11, s12, s13, s12, s22, s23, s13, s23, s33);
                                 let eigenvalues = SymmetricEigen::new(stress_matrix).eigenvalues;
-                                let max_eigenvalue = eigenvalues.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-                                let min_eigenvalue = eigenvalues.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+                                let max_eigenvalue =
+                                    eigenvalues.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+                                let min_eigenvalue =
+                                    eigenvalues.iter().fold(f64::INFINITY, |a, &b| a.min(b));
                                 let tresca = max_eigenvalue - min_eigenvalue;
                                 writeln!(w, "{tresca}")?;
                             } else {

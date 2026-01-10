@@ -1,6 +1,6 @@
 use crate::solver::mesh_lib::elements::element::Element;
 use crate::solver::project::Project;
-use ndarray::Array2;
+use nalgebra::{DMatrix, SMatrix};
 use sprs::TriMat;
 
 pub struct Assembler;
@@ -49,7 +49,7 @@ impl Assembler {
 
                     for dof_i in 0..3 {
                         for dof_j in 0..3 {
-                            let val = k_el[[local_node_i * 3 + dof_i, local_node_j * 3 + dof_j]];
+                            let val = k_el[(local_node_i * 3 + dof_i, local_node_j * 3 + dof_j)];
 
                             if val.abs() > 1e-12 {
                                 let row = global_index_i * 3 + dof_i;
@@ -72,107 +72,96 @@ impl Assembler {
 
 pub fn compute_element_stiffness(
     project: &Project,
-    d_mat: &Array2<f64>,
+    d_mat: &DMatrix<f64>,
     element: &Element,
-) -> Result<Array2<f64>, String> {
+) -> Result<DMatrix<f64>, String> {
     let node_ids = element.get_node_ids();
     let num_nodes = node_ids.len();
     let num_dofs = num_nodes * 3;
 
-    // Physical coordinates of the nodes for the Jacobian calculation
-    let mut node_coords = Array2::<f64>::zeros((3, num_nodes));
+    // 1. Node Coordinates as nalgebra DMatrix (3 rows x num_nodes columns)
+    let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
     for (i, &node_id) in node_ids.iter().enumerate() {
         let coords = project
             .mesh
             .nodes
             .get(&node_id)
             .ok_or(format!("Node {node_id} not found"))?;
-        node_coords[[0, i]] = coords.x;
-        node_coords[[1, i]] = coords.y;
-        node_coords[[2, i]] = coords.z;
+        node_coords[(0, i)] = coords.x;
+        node_coords[(1, i)] = coords.y;
+        node_coords[(2, i)] = coords.z;
     }
 
-    let mut k_el = Array2::<f64>::zeros((num_dofs, num_dofs));
+    let mut k_el = DMatrix::<f64>::zeros(num_dofs, num_dofs);
 
-    // 4. Numerical Integration Loop over Gauss Points
+    // 2. Numerical Integration Loop over Gauss Points
     for gp in element.integration_points() {
-        // Get local shape function derivatives (dN/dxi, dN/deta, dN/dzeta)
         let (_, dn_local) = element.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
 
-        // 5. Jacobian Matrix: J = dN_local * x_nodes
-        // It maps the reference element to the actual physical geometry
-        let jacobian = dn_local.dot(&node_coords.t());
+        // 3. Jacobian Calculation: J = dN_local * node_coords^T
+        // Result is a 3x3 matrix (physical space dims x reference space dims)
+        let jacobian_dm = &dn_local * node_coords.transpose();
 
-        // det(J) is needed for volume transformation: dOmega = det(J) * dXi
-        // inv(J) is needed to transform derivatives from reference to physical space
-        let (det_j, inv_j) = invert_jacobian_3x3(&jacobian)
-            .map_err(|()| format!("Singular element found with nodes: {node_ids:?}"))?;
+        // Convert to fixed-size 3x3 for faster inversion
+        let jacobian = SMatrix::<f64, 3, 3>::from_iterator(jacobian_dm.iter().copied());
 
-        // Transform shape function derivatives to physical space: dN/dx = inv(J) * dN/dxi
-        let dn_global = inv_j.dot(&dn_local);
+        let det_j = jacobian.determinant();
+        if det_j.abs() < 1e-14 {
+            return Err(format!("Singular element found with nodes: {node_ids:?}"));
+        }
+        let inv_j = jacobian.try_inverse().unwrap();
 
-        // 6. Build B-Matrix: Combines dn_global to relate nodal u to strains epsilon
+        // 4. Transform derivatives to physical space: dN_global = J^-1 * dN_local
+        let dn_global = inv_j * dn_local;
+
+        // 5. Build B-Matrix (needs to be updated to return DMatrix)
         let b_mat = build_b_matrix(&dn_global, num_nodes);
 
-        // 7. Core of Weak Form: Compute B^T * D * B
-        let db = d_mat.dot(&b_mat);
-        let btdb = b_mat.t().dot(&db);
+        // 6. Core of Weak Form: B^T * D * B
+        // We use references (&) to avoid moving/cloning matrices in the loop
+        let btdb = b_mat.transpose() * (d_mat * &b_mat);
 
-        // 8. Accumulate Gauss Point contribution: det(J) * w_i * (B^T * D * B)
-        k_el.scaled_add(det_j * gp.weight, &btdb);
+        // 7. Accumulate: k_el += B^T * D * B * det(J) * w_i
+        k_el += btdb * (det_j * gp.weight);
     }
 
     Ok(k_el)
 }
 
-pub fn build_b_matrix(dn_global: &Array2<f64>, num_nodes: usize) -> Array2<f64> {
+use nalgebra::{Dim, Matrix, storage::Storage};
+/// Builds the Strain-Displacement Matrix (B) for a 3D element.
+/// Maps nodal displacements to the 6 components of the strain tensor.
+pub fn build_b_matrix<R, C, S>(dn_global: &Matrix<f64, R, C, S>, num_nodes: usize) -> DMatrix<f64>
+where
+    R: Dim,
+    C: Dim,
+    S: Storage<f64, R, C>,
+{
     let num_dofs = num_nodes * 3;
-    // B-Matrix relates 6 strain components (eps_xx, yy, zz, gamma_xy, yz, zx) to DOFs
-    let mut b = Array2::<f64>::zeros((6, num_dofs));
+    let mut b = DMatrix::<f64>::zeros(6, num_dofs);
 
     for i in 0..num_nodes {
         let col_idx = i * 3;
-        let d_dx = dn_global[[0, i]];
-        let d_dy = dn_global[[1, i]];
-        let d_dz = dn_global[[2, i]];
 
-        // Standard 3D B-Matrix mapping for linear elasticity
-        b[[0, col_idx]] = d_dx;
-        b[[1, col_idx + 1]] = d_dy;
-        b[[2, col_idx + 2]] = d_dz;
-        b[[3, col_idx]] = d_dy;
-        b[[3, col_idx + 1]] = d_dx;
-        b[[4, col_idx + 1]] = d_dz;
-        b[[4, col_idx + 2]] = d_dy;
-        b[[5, col_idx]] = d_dz;
-        b[[5, col_idx + 2]] = d_dx;
+        // nalgebra indexing (row, col) works for any storage type
+        let d_dx = dn_global[(0, i)];
+        let d_dy = dn_global[(1, i)];
+        let d_dz = dn_global[(2, i)];
+
+        // Standard 3D B-Matrix mapping (Voigt notation)
+        // Rows: epsilon_xx, epsilon_yy, epsilon_zz, gamma_xy, gamma_yz, gamma_zx
+        b[(0, col_idx)] = d_dx;
+        b[(1, col_idx + 1)] = d_dy;
+        b[(2, col_idx + 2)] = d_dz;
+
+        b[(3, col_idx)] = d_dy;
+        b[(3, col_idx + 1)] = d_dx;
+
+        b[(4, col_idx + 1)] = d_dz;
+        b[(4, col_idx + 2)] = d_dy;
+
+        b[(5, col_idx)] = d_dz;
+        b[(5, col_idx + 2)] = d_dx;
     }
     b
-}
-
-pub fn invert_jacobian_3x3(m: &Array2<f64>) -> Result<(f64, Array2<f64>), ()> {
-    // Determinant calculation for 3x3 matrix
-    let det = m[[0, 0]] * (m[[1, 1]] * m[[2, 2]] - m[[2, 1]] * m[[1, 2]])
-        - m[[0, 1]] * (m[[1, 0]] * m[[2, 2]] - m[[1, 2]] * m[[2, 0]])
-        + m[[0, 2]] * (m[[1, 0]] * m[[2, 1]] - m[[1, 1]] * m[[2, 0]]);
-
-    if det.abs() < 1e-14 {
-        return Err(());
-    }
-
-    let inv_det = 1.0 / det;
-    let mut inv = Array2::<f64>::zeros((3, 3));
-
-    // Cramer's rule or adjugate matrix for 3x3 inversion
-    inv[[0, 0]] = (m[[1, 1]] * m[[2, 2]] - m[[2, 1]] * m[[1, 2]]) * inv_det;
-    inv[[0, 1]] = (m[[0, 2]] * m[[2, 1]] - m[[0, 1]] * m[[2, 2]]) * inv_det;
-    inv[[0, 2]] = (m[[0, 1]] * m[[1, 2]] - m[[0, 2]] * m[[1, 1]]) * inv_det;
-    inv[[1, 0]] = (m[[1, 2]] * m[[2, 0]] - m[[1, 0]] * m[[2, 2]]) * inv_det;
-    inv[[1, 1]] = (m[[0, 0]] * m[[2, 2]] - m[[0, 2]] * m[[2, 0]]) * inv_det;
-    inv[[1, 2]] = (m[[1, 0]] * m[[0, 2]] - m[[0, 0]] * m[[1, 2]]) * inv_det;
-    inv[[2, 0]] = (m[[1, 0]] * m[[2, 1]] - m[[2, 0]] * m[[1, 1]]) * inv_det;
-    inv[[2, 1]] = (m[[2, 0]] * m[[0, 1]] - m[[0, 0]] * m[[2, 1]]) * inv_det;
-    inv[[2, 2]] = (m[[0, 0]] * m[[1, 1]] - m[[1, 0]] * m[[0, 1]]) * inv_det;
-
-    Ok((det, inv))
 }
