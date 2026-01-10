@@ -3,7 +3,7 @@ use clap::Parser;
 use rayon::ThreadPoolBuilder;
 
 use crate::solver::{
-    io::{vtk::VtkWriter, writer::ResultWriter},
+    io::{OutputFormat, writer::ResultWriter},
     project::Project,
     results::StepResult,
     state::SolutionState,
@@ -12,13 +12,14 @@ use crate::solver::{
 
 mod solver;
 
+const DEFAULT_THREADS: usize = 4;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Build and install the global thread pool
-    let n_threads = args.num_threads;
     ThreadPoolBuilder::new()
-        .num_threads(n_threads.unwrap_or(4))
+        .num_threads(args.num_threads)
         .build_global()?;
 
     let project = Box::new(Project::from_jobname(&args.jobname, None)?);
@@ -30,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", project.get_info());
     println!(
         "Using {} Thread(s)\nTry --help for more info\n\n",
-        n_threads.unwrap_or(1)
+        rayon::current_num_threads()
     );
 
     let start_time = Utc::now();
@@ -71,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // write results
     if !all_results.is_empty() {
-        let writer = VtkWriter;
+        let writer: Box<dyn ResultWriter> = args.output_format.get_writer();
         for (i, result) in all_results.iter().enumerate() {
             let step_id = i + 1;
             let path = project.filepath.parent().unwrap().join(format!(
@@ -111,13 +112,16 @@ pub struct Args {
     /// The jobname. `CalculiX` will look for `<jobname>.inp`.
     jobname: String,
 
+    /// The number of threads to use for the analysis. 0 will use system CPU count.
+    #[arg(short, long, default_value_t = DEFAULT_THREADS)]
+    num_threads: usize,
+
+    #[arg(short, long, default_value_t = OutputFormat::Vtk)]
+    output_format: OutputFormat,
+
     /// Output path to write the preprocessed .inp file into. Useful for debugging
     #[arg(short, long)]
     preprocessed_output: Option<String>,
-
-    /// The number of threads to use for the analysis. Defaults to 4.
-    #[arg(short, long)]
-    num_threads: Option<usize>,
 }
 
 const LOGO: &str = r" _____ _____ ____  ____  _ ___  _

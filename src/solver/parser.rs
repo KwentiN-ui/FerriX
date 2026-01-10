@@ -419,13 +419,13 @@ pub fn preprocess_inp(input_file: &str) -> String {
         // remove comments
         .filter(|line| !line.starts_with("**"))
         .collect();
-    substitute_ccx_solvers(preprocessed)
+    substitute_ccx_solvers(&preprocessed)
 }
 
 use aho_corasick::AhoCorasick;
 
 /// Maps the common `CalculiX` Solvers to supported `Ferrix` solvers.
-pub fn substitute_ccx_solvers(input_file: String) -> String {
+pub fn substitute_ccx_solvers(input_file: &str) -> String {
     let patterns = &[
         "ITERATIVE CHOLESKY",
         "ITERATIVE SCALING",
@@ -436,7 +436,7 @@ pub fn substitute_ccx_solvers(input_file: String) -> String {
     let replaces = &["ITERATIVE", "ITERATIVE", "DIRECT", "DIRECT", "DIRECT"];
 
     let ac = AhoCorasick::new(patterns).unwrap();
-    ac.replace_all(&input_file, replaces)
+    ac.replace_all(input_file, replaces)
 }
 
 #[cfg(test)]
