@@ -62,7 +62,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(mut self) -> Result<Project, String> {
-        let mut lines = self.input.0.lines().enumerate().peekable();
+        let mut lines = self.input.lines().enumerate().peekable();
         while let Some((line_nr, line_content)) = lines.next() {
             self.line_nr = line_nr;
 
@@ -193,10 +193,14 @@ impl<'a> Parser<'a> {
                 Keyword::Cload => self.parse_cload(line),
                 Keyword::Boundary => self.parse_boundary(line),
                 Keyword::NodeFile => {
-                    self.project.nodal_output.extend(line.split(',').map(str::trim).map(str::to_string));
+                    self.project
+                        .nodal_output
+                        .extend(line.split(',').map(str::trim).map(str::to_string));
                 }
                 Keyword::ElFile => {
-                    self.project.element_output.extend(line.split(',').map(str::trim).map(str::to_string));
+                    self.project
+                        .element_output
+                        .extend(line.split(',').map(str::trim).map(str::to_string));
                 }
                 _ => {} // For now
             }
