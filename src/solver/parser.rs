@@ -1,5 +1,5 @@
 use crate::solver::amplitude::{Amplitude, TimeSeries};
-use crate::solver::ids::{BoundaryConditionId, ElementId, LoadId, NodeId};
+use crate::solver::ids::{ElementId, NodeId};
 use crate::solver::increment::IncrementData;
 use crate::solver::inp::InpFile;
 use crate::solver::material::Material;
@@ -432,7 +432,6 @@ impl<'a> Parser<'a> {
             if (1..=3).contains(&dof_in) {
                 for node_id in target_nodes {
                     self.project.loads.push(Load::new(
-                        LoadId(self.load_id_counter),
                         node_id,
                         dof_in - 1,
                         val,
@@ -480,7 +479,6 @@ impl<'a> Parser<'a> {
                 for dof_in in first_dof..=last_dof {
                     if (1..=3).contains(&dof_in) {
                         self.project.bcs.push(BoundaryCondition::new(
-                            BoundaryConditionId(self.bc_id_counter),
                             node_id,
                             dof_in - 1,
                             val,

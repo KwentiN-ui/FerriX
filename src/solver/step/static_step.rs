@@ -33,7 +33,9 @@ impl StaticStep {
         let mut current_time = 0.0;
         let mut n_inc = 0;
         let mut increment_time = self.increment_data.initial_time_increment;
-        let mut step_displacement_increment = vec![0.0; solution_state.displacements.len()];
+
+        // Store the displacement from the last successful increment to update the global state
+        let mut last_u_for_step: Option<Vec<f64>> = None;
 
         while current_time < self.increment_data.time_period {
             n_inc += 1;
@@ -57,17 +59,13 @@ impl StaticStep {
             );
 
             match self.next_increment(project, timer) {
-                Ok(delta_u) => {
+                Ok(u_step_total) => {
                     current_time += increment_time;
 
-                    // Accumulate displacements for the step
-                    for (i, val) in delta_u.iter().enumerate() {
-                        step_displacement_increment[i] += val;
-                    }
-
-                    // Create a temporary solution state for this increment's results
+                    // Create a temporary solution state for this increment's results.
+                    // This state combines the displacement from previous steps with the total for the current step.
                     let mut inc_solution_state = solution_state.clone();
-                    for (i, val) in step_displacement_increment.iter().enumerate() {
+                    for (i, val) in u_step_total.iter().enumerate() {
                         inc_solution_state.displacements[i] += val;
                     }
 
@@ -92,6 +90,9 @@ impl StaticStep {
                     inc_res.nodal_results.push(nodal_strain);
 
                     writer.write_increment(&inc_res)?;
+
+                    // Save the displacement from this increment to update the step state later
+                    last_u_for_step = Some(u_step_total);
                 }
                 Err(e) => {
                     println!("Increment failed: {e}. Retrying with smaller increment.");
@@ -103,9 +104,11 @@ impl StaticStep {
             }
         }
 
-        // Update the global solution state once at the end of the step
-        for (i, val) in step_displacement_increment.iter().enumerate() {
-            solution_state.displacements[i] += val;
+        // Update the global solution state with the displacement from the last successful increment of this step
+        if let Some(final_u) = last_u_for_step {
+            for (i, val) in final_u.iter().enumerate() {
+                solution_state.displacements[i] += val;
+            }
         }
 
         Ok(())

@@ -1,14 +1,8 @@
-use crate::solver::{
-    amplitude::Amplitude,
-    ids::{BoundaryConditionId, LoadId, NodeId},
-    time::SolverTime,
-};
+use crate::solver::{amplitude::Amplitude, ids::NodeId, time::SolverTime};
 
 /// Represents a concentrated load (*CLOAD)
 #[derive(Debug, Clone)]
 pub struct Load {
-    #[allow(dead_code)]
-    id: LoadId,
     node_id: NodeId,
     dof: usize, // 0=x, 1=y, 2=z
     value: f64,
@@ -16,15 +10,8 @@ pub struct Load {
 }
 
 impl Load {
-    pub fn new(
-        id: LoadId,
-        node_id: NodeId,
-        dof: usize,
-        value: f64,
-        amplitude: Option<Amplitude>,
-    ) -> Self {
+    pub fn new(node_id: NodeId, dof: usize, value: f64, amplitude: Option<Amplitude>) -> Self {
         Self {
-            id,
             node_id,
             dof,
             value,
@@ -45,7 +32,6 @@ impl Load {
 /// Represents a boundary condition (*BOUNDARY)
 #[derive(Debug, Clone)]
 pub struct BoundaryCondition {
-    id: BoundaryConditionId,
     node_id: NodeId,
     dof: usize, // 0=x, 1=y, 2=z
     value: f64,
@@ -53,15 +39,8 @@ pub struct BoundaryCondition {
 }
 
 impl BoundaryCondition {
-    pub fn new(
-        id: BoundaryConditionId,
-        node_id: NodeId,
-        dof: usize,
-        value: f64,
-        amplitude: Option<Amplitude>,
-    ) -> Self {
+    pub fn new(node_id: NodeId, dof: usize, value: f64, amplitude: Option<Amplitude>) -> Self {
         Self {
-            id,
             node_id,
             dof,
             value,
