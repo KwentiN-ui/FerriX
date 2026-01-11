@@ -31,42 +31,82 @@ impl StaticStep {
         let mut current_time = 0.0;
         let mut n_inc = 0;
         let mut increment_time = self.increment_data.initial_time_increment;
+        let mut step_displacement_increment = vec![0.0; solution_state.displacements.len()];
 
-        loop {
+        while current_time < self.increment_data.time_period {
             n_inc += 1;
             if n_inc > self.increment_data.max_iterations {
-                return Err(format![
+                return Err(format!(
                     "Maximum increment count of {} exceeded.",
                     self.increment_data.max_iterations,
-                ]
+                )
                 .into());
             }
-            current_time += increment_time;
-            println!("Increment {n_inc} | Time: {current_time:.4e}");
 
-            if let Ok(step_res) =
-                self.next_increment(project, current_time, increment_time, step_id, n_inc)
-            {
-                writer.write_increment(&step_res)?;
-            } else {
-                // try again with smaller stepsize
-                current_time -= increment_time;
-                increment_time /= 2.;
+            if current_time + increment_time > self.increment_data.time_period {
+                increment_time = self.increment_data.time_period - current_time;
             }
-            break;
+
+            println!(
+                "Increment {n_inc} | Step Time: {current_time:.4e} | Increment Size: {increment_time:.4e}"
+            );
+
+            match self.next_increment(project, increment_time) {
+                Ok(delta_u) => {
+                    current_time += increment_time;
+
+                    // Accumulate displacements for the step
+                    for (i, val) in delta_u.iter().enumerate() {
+                        step_displacement_increment[i] += val;
+                    }
+
+                    // Create a temporary solution state for this increment's results
+                    let mut inc_solution_state = solution_state.clone();
+                    for (i, val) in step_displacement_increment.iter().enumerate() {
+                        inc_solution_state.displacements[i] += val;
+                    }
+
+                    // Create and write results for this increment
+                    let mut inc_res = IncResult::new(step_id, n_inc, "Static Step", current_time);
+
+                    let mut nodal_displacement = NodalResult::new("U", FieldType::Displacement);
+                    let (nodal_stress, nodal_strain) =
+                        Self::calculate_stress_strain(project, &inc_solution_state);
+
+                    for (matrix_idx, &node_id) in project.mesh.index_to_node_id.iter().enumerate() {
+                        let idx = matrix_idx * 3;
+                        if idx + 2 < inc_solution_state.displacements.len() {
+                            let dx = inc_solution_state.displacements[idx];
+                            let dy = inc_solution_state.displacements[idx + 1];
+                            let dz = inc_solution_state.displacements[idx + 2];
+                            nodal_displacement.insert(node_id, vec![dx, dy, dz]);
+                        }
+                    }
+                    inc_res.nodal_results.push(nodal_displacement);
+                    inc_res.nodal_results.push(nodal_stress);
+                    inc_res.nodal_results.push(nodal_strain);
+
+                    writer.write_increment(&inc_res)?;
+                }
+                Err(e) => {
+                    println!("Increment failed: {e}. Retrying with smaller increment.");
+                    increment_time /= 2.;
+                    if increment_time < self.increment_data.min_time_increment {
+                        return Err("Minimum time increment reached. Convergence failed.".into());
+                    }
+                }
+            }
+        }
+
+        // Update the global solution state once at the end of the step
+        for (i, val) in step_displacement_increment.iter().enumerate() {
+            solution_state.displacements[i] += val;
         }
 
         Ok(())
     }
 
-    fn next_increment(
-        &self,
-        project: &Project,
-        current_time: f64,
-        increment_time: f64,
-        step_id: usize,
-        n_inc: usize,
-    ) -> Result<IncResult, String> {
+    fn next_increment(&self, project: &Project, increment_time: f64) -> Result<Vec<f64>, String> {
         // 1. Setup
         let num_nodes = project.mesh.nodes.len();
         if num_nodes == 0 {
@@ -74,15 +114,16 @@ impl StaticStep {
         }
         let num_dofs = num_nodes * 3;
 
-        // Init Force Vector F
-        let mut f_global = vec![0.0; num_dofs];
+        // Init Force Vector F (for the increment)
+        let mut f_inc = vec![0.0; num_dofs];
+        let load_factor = increment_time / self.increment_data.time_period;
 
         // 2. Add loads to F
         for load in &project.loads {
             if let Some(idx) = project.mesh.get_index_for_node_id(load.node_id) {
                 let global_dof = idx * 3 + load.dof;
                 if global_dof < num_dofs {
-                    f_global[global_dof] += load.value;
+                    f_inc[global_dof] += load.value * load_factor;
                 }
             } else {
                 eprintln!("Warning: Load on unknown node {}", load.node_id);
@@ -100,13 +141,13 @@ impl StaticStep {
                     let global_dof = idx * 3 + bc.dof;
                     if global_dof < num_dofs {
                         triplet.add_triplet(global_dof, global_dof, penalty);
-                        f_global[global_dof] += penalty * bc.value;
+                        f_inc[global_dof] += penalty * bc.value * load_factor;
                     }
                 }
             }
         }
 
-        // 5. Conversion & Solving
+        // 5. Conversion & Solving for displacement increment
         let k_global: CsMat<f64> = triplet.to_csr();
         let preconditioner = DiagonalPreconditioner::new(&k_global);
         let solver: Box<dyn Solver> = match self.solver {
@@ -114,37 +155,12 @@ impl StaticStep {
             | crate::solver::solvers::SolverType::Direct => Box::new(DirectSolver),
             crate::solver::solvers::SolverType::Iterative => Box::new(IterativeSolver),
         };
-        let delta_u = solver.solve(&k_global, &f_global, Some(&preconditioner), 1e-8, 10000)?;
+        let delta_u = solver.solve(&k_global, &f_inc, Some(&preconditioner), 1e-8, 10000)?;
 
         let u_norm: f64 = delta_u.iter().map(|x| x * x).sum::<f64>().sqrt();
-        println!("Solution found. Displacement Norm: {u_norm:.4e}");
+        println!("Solution found. Displacement Increment Norm: {u_norm:.4e}");
 
-        // 6. Update global solution state
-        for (i, displacement) in solution_state.displacements.iter_mut().enumerate() {
-            *displacement += delta_u[i];
-        }
-
-        // --- Create results for this step ---
-        let mut step_res = IncResult::new(step_id, n_inc, "Static Step", current_time);
-
-        // Nodal results
-        let mut nodal_displacement = NodalResult::new("U", FieldType::Displacement);
-        let (nodal_stress, nodal_strain) = Self::calculate_stress_strain(project, solution_state);
-
-        for (matrix_idx, &node_id) in project.mesh.index_to_node_id.iter().enumerate() {
-            let idx = matrix_idx * 3;
-            if idx + 2 < solution_state.displacements.len() {
-                let dx = solution_state.displacements[idx];
-                let dy = solution_state.displacements[idx + 1];
-                let dz = solution_state.displacements[idx + 2];
-                nodal_displacement.insert(node_id, vec![dx, dy, dz]);
-            }
-        }
-        step_res.nodal_results.push(nodal_displacement);
-        step_res.nodal_results.push(nodal_stress);
-        step_res.nodal_results.push(nodal_strain);
-
-        Ok(step_res)
+        Ok(delta_u)
     }
 
     #[allow(clippy::cast_precision_loss)]
