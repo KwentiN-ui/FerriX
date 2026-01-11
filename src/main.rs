@@ -3,11 +3,9 @@ use clap::Parser;
 use rayon::ThreadPoolBuilder;
 
 use crate::solver::{
-    io::{OutputFormat, writer::ResultWriter},
+    io::OutputFormat,
     project::Project,
-    results::StepResult,
     state::SolutionState,
-    step::{static_step::StaticStep, steps::Step},
 };
 
 mod solver;
@@ -39,64 +37,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Main solver loop ---
     let num_dofs = project.mesh.nodes.len() * 3;
     let mut solution_state = SolutionState::new(num_dofs);
-    let mut all_results: Vec<StepResult> = Vec::new();
+    let mut writer = args.output_format.get_writer();
 
-    for (i, step_type) in project.steps.iter().enumerate() {
+    writer.init(&project)?;
+
+    for (i, step) in project.steps.iter().enumerate() {
         let step_id = i + 1;
-        match step_type {
-            Step::StaticStep(solver) => {
-                let mut step = StaticStep::new(project.clone());
-                println!("--- Step {step_id}: StaticStep ---");
-                match step.compute(
-                    step_id,
-                    &project.loads,
-                    &project.bcs,
-                    &mut solution_state,
-                    solver,
-                ) {
-                    Ok(step_res) => {
-                        all_results.push(step_res);
-                        println!("Step {step_id} completed.\n\n");
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "Error occured in step {step_id}: {e}\n\nAttempting to write results..."
-                        );
-                        break;
-                    }
-                }
-            }
+        if let Err(e) = step.solve(step_id, &project, &mut solution_state, writer.as_mut()) {
+            eprintln!("Error occurred in step {step_id}: {e}\n\n");
+            break;
         }
+        println!("Step {step_id} completed.\n\n");
     }
     // --- End main solver loop ---
 
-    // write results
-    if !all_results.is_empty() {
-        let writer: Box<dyn ResultWriter> = args.output_format.get_writer();
-        for (i, result) in all_results.iter().enumerate() {
-            let step_id = i + 1;
-            let path = project.filepath.parent().unwrap().join(format!(
-                "{}_step_{}.vtk",
-                project.jobname(),
-                step_id
-            ));
-
-            match writer.write(
-                &path,
-                &project.mesh,
-                std::slice::from_ref(result),
-                &project.nodal_output,
-                &project.element_output,
-            ) {
-                Ok(()) => {
-                    println!("Written results to {}", path.display());
-                }
-                Err(e) => {
-                    eprintln!("{e}");
-                }
-            }
-        }
-    }
+    writer.finish()?;
 
     println!("Job finished");
     println!(
@@ -116,7 +71,7 @@ pub struct Args {
     #[arg(short, long, default_value_t = DEFAULT_THREADS)]
     num_threads: usize,
 
-    #[arg(short, long, default_value_t = OutputFormat::Vtk)]
+    #[arg(short, long, default_value_t = OutputFormat::Pvd)]
     output_format: OutputFormat,
 
     /// Output path to write the preprocessed .inp file into. Useful for debugging

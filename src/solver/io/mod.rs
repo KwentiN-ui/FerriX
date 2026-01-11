@@ -1,20 +1,22 @@
 use derive_more::{Display, FromStr};
 
-use crate::solver::io::{vtk::VtkWriter, writer::ResultWriter};
+use crate::solver::io::{pvd::PvdWriter, writer::ResultWriter};
 
+pub mod pvd;
 pub mod vtk;
 pub mod writer;
 
 #[derive(Debug, Clone, Display, FromStr)]
 pub enum OutputFormat {
-    #[display("VTK")]
-    Vtk,
+    #[display("PVD")]
+    Pvd,
 }
 
 impl OutputFormat {
     pub fn get_writer(&self) -> Box<dyn ResultWriter> {
         match self {
-            OutputFormat::Vtk => Box::new(VtkWriter),
+            OutputFormat::Pvd => Box::new(PvdWriter::new()),
         }
     }
 }
+

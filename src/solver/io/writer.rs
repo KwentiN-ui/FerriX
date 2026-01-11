@@ -1,16 +1,15 @@
-use crate::solver::mesh_lib::mesh::Mesh;
+use crate::solver::project::Project;
 use crate::solver::results::StepResult;
 use std::error::Error;
-use std::path::Path;
 
 /// Trait for writing output formats
 pub trait ResultWriter {
-    fn write(
-        &self,
-        path: &Path,
-        mesh: &Mesh,
-        step_result: &[StepResult],
-        nodal_output: &[String],
-        element_output: &[String],
-    ) -> Result<(), Box<dyn Error>>;
+    /// Called once before the main solver loop.
+    fn init(&mut self, project: &Project) -> Result<(), Box<dyn Error>>;
+
+    /// Called for each increment.
+    fn write(&mut self, result: &StepResult) -> Result<(), Box<dyn Error>>;
+
+    /// Called once after the main solver loop.
+    fn finish(&mut self) -> Result<(), Box<dyn Error>>;
 }

@@ -7,7 +7,9 @@ use crate::solver::mesh_lib::node::Node;
 use crate::solver::project::Project;
 use crate::solver::solvers::SolverType;
 use crate::solver::step::boundary_conds::{BoundaryCondition, Load};
+use crate::solver::step::static_step::StaticStep;
 use crate::solver::step::steps::Step;
+use std::collections::HashMap;
 use std::str::FromStr;
 use strum_macros::EnumString;
 
@@ -168,20 +170,52 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Keyword::Step => {
+                    let max_increments: usize = parse_keyword_arguments(line)
+                        .get("INC")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(100);
+
                     if let Some((_next_nr, next_line)) = lines.peek() {
                         if next_line.starts_with("*STATIC") {
-                            let solver = next_line
-                                .split(',')
-                                .find_map(|part| {
-                                    let (key, val) = part.split_once('=')?;
-                                    match (key.trim(), val.trim()) {
-                                        ("SOLVER", "DIRECT") => Some(SolverType::Direct),
-                                        ("SOLVER", "ITERATIVE") => Some(SolverType::Iterative),
-                                        _ => None,
-                                    }
-                                })
-                                .unwrap_or(SolverType::Default);
-                            self.project.steps.push(Step::StaticStep(solver));
+                            let step_kwargs = parse_keyword_arguments(next_line);
+                            let solver = match step_kwargs.get("SOLVER") {
+                                Some(solver_str) => match *solver_str {
+                                    "DIRECT" => SolverType::Direct,
+                                    "ITERATIVE" => SolverType::Iterative,
+                                    _ => panic!("Unknown solver type: {}", solver_str),
+                                },
+                                None => SolverType::Default,
+                            };
+
+                            // Consume the *STATIC line
+                            lines.next();
+
+                            if let Some((_data_nr, data_line)) = lines.next() {
+                                let time_data: Vec<f64> = data_line
+                                    .split(',')
+                                    .filter_map(|s| s.trim().parse().ok())
+                                    .collect();
+
+                                if time_data.len() >= 4 {
+                                    let static_step = StaticStep {
+                                        solver,
+                                        max_increments,
+                                        initial_time_increment: time_data[0],
+                                        time_period: time_data[1],
+                                        min_time_increment: time_data[2],
+                                        max_time_increment: time_data[3],
+                                    };
+                                    self.project.steps.push(Step::StaticStep(static_step));
+                                } else {
+                                    // Handle error: not enough time data
+                                    return Err(
+                                        "Not enough values for *STATIC time data".to_string()
+                                    );
+                                }
+                            } else {
+                                // Handle error: no data line after *STATIC
+                                return Err("Expected data line after *STATIC".to_string());
+                            }
                         }
                     }
                 }
@@ -396,6 +430,17 @@ impl<'a> Parser<'a> {
     }
 }
 
+fn parse_keyword_arguments(line: &str) -> HashMap<&str, &str> {
+    line.split(',')
+        .filter_map(|s| s.split_once('='))
+        .map(|(k, v)| (k.trim().into(), v.trim().into()))
+        .collect()
+}
+
+fn parse_postional_arguments(line: &str) -> Vec<&str> {
+    line.split(',').map(str::trim).collect()
+}
+
 /// This preprocess includes:
 /// - removing leading and trailing whitespaces
 /// - removing comments
@@ -441,6 +486,8 @@ pub fn substitute_ccx_solvers(input_file: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use itertools::assert_equal;
+
     use super::*;
 
     #[test]
@@ -449,6 +496,28 @@ mod tests {
         assert_eq!(
             preprocess_inp(inp),
             "WORD\n*KEYWORD\n123.4\n4, 5, 6, 7, 8, 9\n"
+        );
+    }
+
+    #[test]
+    fn keyword_args() {
+        let line = "*STEP , INC =  100";
+        let args = parse_keyword_arguments(line);
+        assert!(args["INC"] == "100".to_string());
+    }
+
+    #[test]
+    fn positional_args() {
+        let line = "0.1, 1, 1E-05, 0.2";
+        let args = parse_postional_arguments(line);
+        assert_equal(
+            args,
+            vec![
+                "0.1".to_string(),
+                "1".to_string(),
+                "1E-05".to_string(),
+                "0.2".to_string(),
+            ],
         );
     }
 }
