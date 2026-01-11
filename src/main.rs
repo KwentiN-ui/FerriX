@@ -1,14 +1,10 @@
+use std::sync::Arc;
+
 use chrono::{Local, Utc};
 use clap::Parser;
 use rayon::ThreadPoolBuilder;
 
-use crate::solver::{
-    io::{OutputFormat, writer::ResultWriter},
-    project::Project,
-    results::StepResult,
-    state::SolutionState,
-    step::{static_step::StaticStep, steps::Step},
-};
+use crate::solver::{io::OutputFormat, project::Project, state::SolutionState, time::SolverTime};
 
 mod solver;
 
@@ -22,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .num_threads(args.num_threads)
         .build_global()?;
 
-    let project = Box::new(Project::from_jobname(&args.jobname, None)?);
+    let project = Arc::new(Project::from_jobname(&args.jobname, None)?);
 
     println!("{}\n", Local::now().format("%d.%m.%y, %H:%M:%S"));
     println!("{LOGO}");
@@ -35,68 +31,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let start_time = Utc::now();
+    let mut simulation_time = SolverTime::new();
 
     // --- Main solver loop ---
     let num_dofs = project.mesh.nodes.len() * 3;
     let mut solution_state = SolutionState::new(num_dofs);
-    let mut all_results: Vec<StepResult> = Vec::new();
+    let writer = args.output_format.get_writer(project.clone());
 
-    for (i, step_type) in project.steps.iter().enumerate() {
+    writer.init().unwrap();
+
+    for (i, step) in project.steps.iter().enumerate() {
+        // Each step needs to call the simulation_time methods internally to advance the time properly!
         let step_id = i + 1;
-        match step_type {
-            Step::StaticStep(solver) => {
-                let mut step = StaticStep::new(project.clone());
-                println!("--- Step {step_id}: StaticStep ---");
-                match step.compute(
-                    step_id,
-                    &project.loads,
-                    &project.bcs,
-                    &mut solution_state,
-                    solver,
-                ) {
-                    Ok(step_res) => {
-                        all_results.push(step_res);
-                        println!("Step {step_id} completed.\n\n");
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "Error occured in step {step_id}: {e}\n\nAttempting to write results..."
-                        );
-                        break;
-                    }
-                }
-            }
+        if let Err(e) = step.solve(
+            step_id,
+            &project,
+            &mut solution_state,
+            &*writer,
+            &mut simulation_time,
+        ) {
+            eprintln!("Error occurred in step {step_id}: {e}\n\n");
+            break;
         }
+        println!("Step {step_id} completed.\n\n");
     }
     // --- End main solver loop ---
 
-    // write results
-    if !all_results.is_empty() {
-        let writer: Box<dyn ResultWriter> = args.output_format.get_writer();
-        for (i, result) in all_results.iter().enumerate() {
-            let step_id = i + 1;
-            let path = project.filepath.parent().unwrap().join(format!(
-                "{}_step_{}.vtk",
-                project.jobname(),
-                step_id
-            ));
-
-            match writer.write(
-                &path,
-                &project.mesh,
-                std::slice::from_ref(result),
-                &project.nodal_output,
-                &project.element_output,
-            ) {
-                Ok(()) => {
-                    println!("Written results to {}", path.display());
-                }
-                Err(e) => {
-                    eprintln!("{e}");
-                }
-            }
-        }
-    }
+    let _ = writer.finish();
 
     println!("Job finished");
     println!(

@@ -1,4 +1,6 @@
-use crate::solver::ids::{BoundaryConditionId, ElementId, LoadId, NodeId};
+use crate::solver::amplitude::{Amplitude, TimeSeries};
+use crate::solver::ids::{ElementId, NodeId};
+use crate::solver::increment::IncrementData;
 use crate::solver::inp::InpFile;
 use crate::solver::material::Material;
 use crate::solver::mesh_lib::elements::element::Element;
@@ -7,7 +9,9 @@ use crate::solver::mesh_lib::node::Node;
 use crate::solver::project::Project;
 use crate::solver::solvers::SolverType;
 use crate::solver::step::boundary_conds::{BoundaryCondition, Load};
+use crate::solver::step::static_step::StaticStep;
 use crate::solver::step::steps::Step;
+use std::collections::HashMap;
 use std::str::FromStr;
 use strum_macros::EnumString;
 
@@ -30,6 +34,7 @@ pub enum Keyword {
     Heading,
     NodeFile,
     ElFile,
+    Amplitude,
 }
 
 pub struct Parser<'a> {
@@ -88,6 +93,7 @@ impl<'a> Parser<'a> {
         Ok(self.project)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn parse_keyword(
         &mut self,
         line: &str,
@@ -168,21 +174,110 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Keyword::Step => {
+                    let max_iterations: usize = get_keyword_arguments(line)
+                        .get("INC")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(10000);
+
                     if let Some((_next_nr, next_line)) = lines.peek() {
                         if next_line.starts_with("*STATIC") {
-                            let solver = next_line
-                                .split(',')
-                                .find_map(|part| {
-                                    let (key, val) = part.split_once('=')?;
-                                    match (key.trim(), val.trim()) {
-                                        ("SOLVER", "DIRECT") => Some(SolverType::Direct),
-                                        ("SOLVER", "ITERATIVE") => Some(SolverType::Iterative),
-                                        _ => None,
-                                    }
-                                })
-                                .unwrap_or(SolverType::Default);
-                            self.project.steps.push(Step::StaticStep(solver));
+                            let step_kwargs = get_keyword_arguments(next_line);
+                            let solver = match step_kwargs.get("SOLVER") {
+                                Some(solver_str) => match *solver_str {
+                                    "DIRECT" => SolverType::Direct,
+                                    "ITERATIVE" => SolverType::Iterative,
+                                    _ => panic!("Unknown solver type: {solver_str}"),
+                                },
+                                None => SolverType::Default,
+                            };
+
+                            // Consume the *STATIC line
+                            lines.next();
+
+                            if let Some((_data_nr, data_line)) = lines.next() {
+                                let mut increment: IncrementData = IncrementData {
+                                    max_iterations,
+                                    ..Default::default()
+                                };
+                                if !data_line.starts_with('*') {
+                                    // Increment data was supplied in INP
+                                    let args = get_positional_arguments(data_line);
+                                    increment.initial_time_increment = args[0].parse().unwrap();
+                                    increment.time_period = args[1].parse().unwrap();
+                                    increment.min_time_increment = args[2].parse().unwrap();
+                                    increment.max_time_increment = args[3].parse().unwrap();
+                                }
+
+                                let static_step = StaticStep {
+                                    solver,
+                                    increment_data: increment,
+                                };
+                                self.project.steps.push(Step::StaticStep(static_step));
+                            } else {
+                                // Handle error: no data line after *STATIC
+                                return Err("Expected data line after *STATIC".to_string());
+                            }
                         }
+                    }
+                }
+                Keyword::Amplitude => {
+                    let kwargs = get_keyword_arguments(line);
+                    let name = *kwargs
+                        .get("NAME")
+                        .expect("Amplitude card is missing a `Name=` argument.");
+                    let total_time = match kwargs.get("TIME") {
+                        Some(val) => *val == "TOTAL TIME",
+                        None => false,
+                    };
+                    let shift_x: f64 = kwargs
+                        .get("SHIFTX")
+                        .and_then(|val| val.parse().ok())
+                        .unwrap_or_default();
+                    let shift_y: f64 = kwargs
+                        .get("SHIFTY")
+                        .and_then(|val| val.parse().ok())
+                        .unwrap_or_default();
+                    if let Some((_next_nr, next_line)) = lines.peek() {
+                        let t: Vec<f64> = next_line
+                            .split(',')
+                            .step_by(2)
+                            .map(str::trim)
+                            .filter_map(|num| num.parse().ok())
+                            .collect();
+
+                        let vals: Vec<f64> = next_line
+                            .split(',')
+                            .skip(1)
+                            .step_by(2)
+                            .map(str::trim)
+                            .map(|num| num.parse().unwrap())
+                            .collect();
+
+                        let data = Some(TimeSeries(t, vals));
+
+                        self.project.amplitudes.insert(
+                            name.into(),
+                            Amplitude {
+                                total_time,
+                                shift_x,
+                                shift_y,
+                                data,
+                            },
+                        );
+                    }
+                }
+                Keyword::Boundary => {
+                    let kwargs = get_keyword_arguments(line);
+                    let amplitude_name: Option<&str> = kwargs.get("AMPLITUDE").map(|v| &**v);
+                    if let Some((_next_nr, next_line)) = lines.peek() {
+                        self.parse_boundary(next_line, amplitude_name);
+                    }
+                }
+                Keyword::Cload => {
+                    let kwargs = get_keyword_arguments(line);
+                    let amplitude_name: Option<&str> = kwargs.get("AMPLITUDE").map(|v| &**v);
+                    if let Some((_next_nr, next_line)) = lines.peek() {
+                        self.parse_cload(next_line, amplitude_name);
                     }
                 }
                 _ => {}
@@ -202,8 +297,6 @@ impl<'a> Parser<'a> {
                 Keyword::Nset => self.parse_nset(line),
                 Keyword::Elset => self.parse_elset(line),
                 Keyword::Elastic => self.parse_elastic(line),
-                Keyword::Cload => self.parse_cload(line),
-                Keyword::Boundary => self.parse_boundary(line),
                 Keyword::NodeFile => {
                     self.project
                         .nodal_output
@@ -214,7 +307,7 @@ impl<'a> Parser<'a> {
                         .element_output
                         .extend(line.split(',').map(str::trim).map(str::to_string));
                 }
-                _ => {} // For now
+                _ => {}
             }
         }
     }
@@ -316,7 +409,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_cload(&mut self, line: &str) {
+    fn parse_cload(&mut self, line: &str, amplitude_name: Option<&str>) {
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
         if parts.len() >= 3 {
             let target = parts[0];
@@ -338,19 +431,22 @@ impl<'a> Parser<'a> {
 
             if (1..=3).contains(&dof_in) {
                 for node_id in target_nodes {
-                    self.project.loads.push(Load {
-                        id: LoadId(self.load_id_counter),
+                    self.project.loads.push(Load::new(
                         node_id,
-                        dof: dof_in - 1,
-                        value: val,
-                    });
+                        dof_in - 1,
+                        val,
+                        match amplitude_name {
+                            Some(name) => self.project.amplitudes.get(name).cloned(),
+                            None => None,
+                        },
+                    ));
                     self.load_id_counter += 1;
                 }
             }
         }
     }
 
-    fn parse_boundary(&mut self, line: &str) {
+    fn parse_boundary(&mut self, line: &str, amplitude_name: Option<&str>) {
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
         if parts.len() >= 2 {
             let target = parts[0];
@@ -382,18 +478,32 @@ impl<'a> Parser<'a> {
             for node_id in target_nodes {
                 for dof_in in first_dof..=last_dof {
                     if (1..=3).contains(&dof_in) {
-                        self.project.bcs.push(BoundaryCondition {
-                            id: BoundaryConditionId(self.bc_id_counter),
+                        self.project.bcs.push(BoundaryCondition::new(
                             node_id,
-                            dof: dof_in - 1,
-                            value: val,
-                        });
+                            dof_in - 1,
+                            val,
+                            match amplitude_name {
+                                Some(name) => self.project.amplitudes.get(name).cloned(),
+                                None => None,
+                            },
+                        ));
                         self.bc_id_counter += 1;
                     }
                 }
             }
         }
     }
+}
+
+fn get_keyword_arguments(line: &str) -> HashMap<&str, &str> {
+    line.split(',')
+        .filter_map(|s| s.split_once('='))
+        .map(|(k, v)| (k.trim(), v.trim()))
+        .collect()
+}
+
+fn get_positional_arguments(line: &str) -> Vec<&str> {
+    line.split(',').map(str::trim).collect()
 }
 
 /// This preprocess includes:
@@ -441,6 +551,8 @@ pub fn substitute_ccx_solvers(input_file: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use itertools::assert_equal;
+
     use super::*;
 
     #[test]
@@ -449,6 +561,28 @@ mod tests {
         assert_eq!(
             preprocess_inp(inp),
             "WORD\n*KEYWORD\n123.4\n4, 5, 6, 7, 8, 9\n"
+        );
+    }
+
+    #[test]
+    fn keyword_args() {
+        let line = "*STEP , INC =  100";
+        let args = get_keyword_arguments(line);
+        assert!(args["INC"] == "100".to_string());
+    }
+
+    #[test]
+    fn positional_args() {
+        let line = "0.1, 1, 1E-05, 0.2";
+        let args = get_positional_arguments(line);
+        assert_equal(
+            args,
+            vec![
+                "0.1".to_string(),
+                "1".to_string(),
+                "1E-05".to_string(),
+                "0.2".to_string(),
+            ],
         );
     }
 }

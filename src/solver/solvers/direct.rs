@@ -1,11 +1,7 @@
-use std::time::Duration;
-
 use crate::solver::solvers::Solver;
 use faer::Side;
 use faer::prelude::*;
 use faer::sparse::{SparseColMatRef, SymbolicSparseColMatRef};
-use indicatif::ProgressBar;
-use indicatif::ProgressStyle;
 
 pub struct DirectSolver;
 
@@ -18,11 +14,6 @@ impl Solver for DirectSolver {
         _tol: f64,
         _max_iter: usize,
     ) -> Result<Vec<f64>, String> {
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_message("Solving using Direct Solver (Cholesky-Decomposition)");
-        spinner.enable_steady_tick(Duration::from_millis(100));
-        spinner.set_style(ProgressStyle::default_spinner());
-
         let (rows, cols) = k_global.shape();
 
         let indptr_storage = k_global.indptr();
@@ -47,7 +38,6 @@ impl Solver for DirectSolver {
         })?;
 
         let x_mat = llt.solve(&b);
-        spinner.finish();
 
         Ok(x_mat.col(0).iter().copied().collect())
     }

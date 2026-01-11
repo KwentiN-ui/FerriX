@@ -1,16 +1,15 @@
-use crate::solver::mesh_lib::mesh::Mesh;
-use crate::solver::results::StepResult;
+use crate::solver::{results::IncResult, time::SolverTime};
 use std::error::Error;
-use std::path::Path;
 
 /// Trait for writing output formats
 pub trait ResultWriter {
-    fn write(
+    /// Is called at the beginning of analysis. Can be used to setup directories etc.
+    fn init(&self) -> Result<(), Box<dyn Error>>;
+    fn write_increment(
         &self,
-        path: &Path,
-        mesh: &Mesh,
-        step_result: &[StepResult],
-        nodal_output: &[String],
-        element_output: &[String],
+        inc_result: &IncResult,
+        timer: &SolverTime,
     ) -> Result<(), Box<dyn Error>>;
+    /// Is called at the very end of the analysis. Can be used for cleanup, etc.
+    fn finish(&self) -> Result<(), Box<dyn Error>>;
 }

@@ -1,4 +1,4 @@
-use crate::solver::ids::ElementId;
+use crate::solver::{amplitude::Amplitude, ids::ElementId};
 use std::{
     collections::HashMap,
     error::Error,
@@ -45,6 +45,8 @@ pub struct Project {
     pub nodal_output: Vec<String>,
     /// Element output variables requested by the user (e.g. `S`, `E`).
     pub element_output: Vec<String>,
+    /// Amplitude definitions as defined in the input file.
+    pub amplitudes: HashMap<String, Amplitude>,
 }
 
 impl Project {
@@ -88,14 +90,13 @@ impl Project {
         if let Some(out) = preprocess_output {
             fs::write(out, &input_content)?;
         }
-        
+
         let input = InpFile::new(&input_content);
         let mut project = Parser::new(&input).parse()?;
-        
+
         project.filepath = path;
         project.input = Box::new(input);
-        
-        
+
         Ok(project)
     }
 
@@ -107,5 +108,10 @@ impl Project {
             .to_str()
             .expect("There is no reason why this should fail")
             .to_string()
+    }
+
+    /// Filepath to the output directory
+    pub fn job_dir(&self) -> PathBuf {
+        self.filepath.parent().expect("Invalid filepath.").into()
     }
 }

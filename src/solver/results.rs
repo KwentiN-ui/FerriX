@@ -34,20 +34,22 @@ impl NodalResult {
     }
 }
 
-/// Holds all results for a single step (e.g. "Step 1 - Static")
+/// Holds all results for a single increment (e.g. "Step 1 - Static")
 #[allow(unused)]
 #[derive(Debug, Clone)]
-pub struct StepResult {
+pub struct IncResult {
     pub step_id: usize,
+    pub inc_id: usize,
     pub step_name: String,
     pub time_increment: f64,
     pub nodal_results: Vec<NodalResult>,
 }
 
-impl StepResult {
-    pub fn new(step_id: usize, name: &str, time: f64) -> Self {
+impl IncResult {
+    pub fn new(step_id: usize, inc_id: usize, name: &str, time: f64) -> Self {
         Self {
             step_id,
+            inc_id,
             step_name: name.to_string(),
             time_increment: time,
             nodal_results: Vec::new(),
