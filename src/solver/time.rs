@@ -21,7 +21,6 @@ impl SolverTime {
         self.local_max = max_time;
     }
     pub fn new_increment(&mut self, timestep: f64) {
-        dbg!(self.local);
         self.global += timestep;
         self.local += timestep;
     }

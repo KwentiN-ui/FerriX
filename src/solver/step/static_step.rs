@@ -50,7 +50,6 @@ impl StaticStep {
             }
 
             timer.new_increment(increment_time);
-            dbg!(&timer);
 
             println!(
                 "Increment {n_inc} | Step Time: {current_time:.4e} | Increment Size: {increment_time:.4e}"
@@ -160,9 +159,6 @@ impl StaticStep {
             crate::solver::solvers::SolverType::Iterative => Box::new(IterativeSolver),
         };
         let delta_u = solver.solve(&k_global, &f_inc, Some(&preconditioner), 1e-8, 10000)?;
-
-        let u_norm: f64 = delta_u.iter().map(|x| x * x).sum::<f64>().sqrt();
-        println!("Solution found. Displacement Increment Norm: {u_norm:.4e}");
 
         Ok(delta_u)
     }
