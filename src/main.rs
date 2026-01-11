@@ -4,7 +4,7 @@ use chrono::{Local, Utc};
 use clap::Parser;
 use rayon::ThreadPoolBuilder;
 
-use crate::solver::{io::OutputFormat, project::Project, state::SolutionState};
+use crate::solver::{io::OutputFormat, project::Project, state::SolutionState, time::SolverTime};
 
 mod solver;
 
@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let start_time = Utc::now();
+    let mut simulation_time = SolverTime::new();
 
     // --- Main solver loop ---
     let num_dofs = project.mesh.nodes.len() * 3;
@@ -38,8 +39,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let writer = args.output_format.get_writer(project.clone());
 
     for (i, step) in project.steps.iter().enumerate() {
+        // Each step needs to call the simulation_time methods internally to advance the time properly!
         let step_id = i + 1;
-        if let Err(e) = step.solve(step_id, &project, &mut solution_state, &*writer) {
+        if let Err(e) = step.solve(
+            step_id,
+            &project,
+            &mut solution_state,
+            &*writer,
+            &mut simulation_time,
+        ) {
             eprintln!("Error occurred in step {step_id}: {e}\n\n");
             break;
         }

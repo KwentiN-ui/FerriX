@@ -8,6 +8,7 @@ use crate::solver::results::{FieldType, IncResult, NodalResult};
 use crate::solver::solvers::SolverType;
 use crate::solver::solvers::{Solver, direct::DirectSolver, iterative::IterativeSolver};
 use crate::solver::state::SolutionState;
+use crate::solver::time::SolverTime;
 use sprs::CsMat;
 use std::collections::HashMap;
 use std::error::Error;
@@ -25,6 +26,7 @@ impl StaticStep {
         project: &Project,
         solution_state: &mut SolutionState,
         writer: &dyn ResultWriter,
+        timer: &mut SolverTime,
     ) -> Result<(), Box<dyn Error>> {
         println!("--- Step {step_id}: StaticStep ---");
 
@@ -47,11 +49,14 @@ impl StaticStep {
                 increment_time = self.increment_data.time_period - current_time;
             }
 
+            timer.new_increment(increment_time);
+            dbg!(&timer);
+
             println!(
                 "Increment {n_inc} | Step Time: {current_time:.4e} | Increment Size: {increment_time:.4e}"
             );
 
-            match self.next_increment(project, increment_time) {
+            match self.next_increment(project, timer) {
                 Ok(delta_u) => {
                     current_time += increment_time;
 
@@ -106,7 +111,7 @@ impl StaticStep {
         Ok(())
     }
 
-    fn next_increment(&self, project: &Project, increment_time: f64) -> Result<Vec<f64>, String> {
+    fn next_increment(&self, project: &Project, timer: &SolverTime) -> Result<Vec<f64>, String> {
         // 1. Setup
         let num_nodes = project.mesh.nodes.len();
         if num_nodes == 0 {
@@ -116,17 +121,16 @@ impl StaticStep {
 
         // Init Force Vector F (for the increment)
         let mut f_inc = vec![0.0; num_dofs];
-        let load_factor = increment_time / self.increment_data.time_period;
 
         // 2. Add loads to F
         for load in &project.loads {
-            if let Some(idx) = project.mesh.get_index_for_node_id(load.node_id) {
-                let global_dof = idx * 3 + load.dof;
+            if let Some(idx) = project.mesh.get_index_for_node_id(load.node_id()) {
+                let global_dof = idx * 3 + load.dof();
                 if global_dof < num_dofs {
-                    f_inc[global_dof] += load.value * load_factor;
+                    f_inc[global_dof] += load.value(timer);
                 }
             } else {
-                eprintln!("Warning: Load on unknown node {}", load.node_id);
+                eprintln!("Warning: Load on unknown node {}", load.node_id());
             }
         }
 
@@ -137,11 +141,11 @@ impl StaticStep {
         if max_diag_val > 0.0 {
             let penalty = max_diag_val * 1.0e6;
             for bc in &project.bcs {
-                if let Some(idx) = project.mesh.get_index_for_node_id(bc.node_id) {
-                    let global_dof = idx * 3 + bc.dof;
+                if let Some(idx) = project.mesh.get_index_for_node_id(bc.node_id()) {
+                    let global_dof = idx * 3 + bc.dof();
                     if global_dof < num_dofs {
                         triplet.add_triplet(global_dof, global_dof, penalty);
-                        f_inc[global_dof] += penalty * bc.value * load_factor;
+                        f_inc[global_dof] += penalty * bc.value(timer);
                     }
                 }
             }

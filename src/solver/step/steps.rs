@@ -4,6 +4,7 @@ use crate::solver::io::writer::ResultWriter;
 use crate::solver::project::Project;
 use crate::solver::state::SolutionState;
 use crate::solver::step::static_step::StaticStep;
+use crate::solver::time::SolverTime;
 use std::error::Error;
 
 #[derive(Debug, Clone, EnumDiscriminants)]
@@ -20,10 +21,12 @@ impl Step {
         project: &Project,
         solution_state: &mut SolutionState,
         writer: &dyn ResultWriter,
+        timer: &mut SolverTime,
     ) -> Result<(), Box<dyn Error>> {
         match self {
             Step::StaticStep(static_step) => {
-                static_step.solve(step_id, project, solution_state, writer)
+                timer.new_step(static_step.increment_data.time_period);
+                static_step.solve(step_id, project, solution_state, writer, timer)
             }
         }
     }

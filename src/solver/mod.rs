@@ -1,5 +1,6 @@
 //! This module contains code related to solving general FEA problems.
 
+pub mod amplitude;
 pub mod assembler;
 pub mod ids;
 pub mod increment;
@@ -15,3 +16,4 @@ pub mod section;
 pub mod solvers;
 pub mod state;
 pub mod step;
+pub mod time;

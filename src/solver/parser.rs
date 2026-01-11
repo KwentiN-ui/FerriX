@@ -371,12 +371,13 @@ impl<'a> Parser<'a> {
 
             if (1..=3).contains(&dof_in) {
                 for node_id in target_nodes {
-                    self.project.loads.push(Load {
-                        id: LoadId(self.load_id_counter),
+                    self.project.loads.push(Load::new(
+                        LoadId(self.load_id_counter),
                         node_id,
-                        dof: dof_in - 1,
-                        value: val,
-                    });
+                        dof_in - 1,
+                        val,
+                        None,
+                    ));
                     self.load_id_counter += 1;
                 }
             }
@@ -415,12 +416,13 @@ impl<'a> Parser<'a> {
             for node_id in target_nodes {
                 for dof_in in first_dof..=last_dof {
                     if (1..=3).contains(&dof_in) {
-                        self.project.bcs.push(BoundaryCondition {
-                            id: BoundaryConditionId(self.bc_id_counter),
+                        self.project.bcs.push(BoundaryCondition::new(
+                            BoundaryConditionId(self.bc_id_counter),
                             node_id,
-                            dof: dof_in - 1,
-                            value: val,
-                        });
+                            dof_in - 1,
+                            val,
+                            None,
+                        ));
                         self.bc_id_counter += 1;
                     }
                 }
