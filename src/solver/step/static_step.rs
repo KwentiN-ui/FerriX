@@ -52,7 +52,8 @@ impl StaticStep {
             timer.new_increment(increment_time);
 
             println!(
-                "Increment {n_inc} | Step Time: {current_time:.4e} | Increment Size: {increment_time:.4e}"
+                "Increment {n_inc} | Step Time: {:.4e} | Increment Size: {increment_time:.4e}",
+                timer.local_time()
             );
 
             match self.next_increment(project, timer) {

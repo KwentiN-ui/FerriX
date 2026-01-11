@@ -1,3 +1,4 @@
+use crate::solver::amplitude::{Amplitude, TimeSeries};
 use crate::solver::ids::{BoundaryConditionId, ElementId, LoadId, NodeId};
 use crate::solver::increment::IncrementData;
 use crate::solver::inp::InpFile;
@@ -33,6 +34,7 @@ pub enum Keyword {
     Heading,
     NodeFile,
     ElFile,
+    Amplitude,
 }
 
 pub struct Parser<'a> {
@@ -216,6 +218,52 @@ impl<'a> Parser<'a> {
                                 return Err("Expected data line after *STATIC".to_string());
                             }
                         }
+                    }
+                }
+                Keyword::Amplitude => {
+                    let kwargs = get_keyword_arguments(line);
+                    let name = *kwargs
+                        .get("NAME")
+                        .expect("Amplitude card is missing a `Name=` argument.");
+                    let total_time = match kwargs.get("TIME") {
+                        Some(val) => *val == "TOTAL TIME",
+                        None => false,
+                    };
+                    let shift_x: f64 = kwargs
+                        .get("SHIFTX")
+                        .and_then(|val| val.parse().ok())
+                        .unwrap_or_default();
+                    let shift_y: f64 = kwargs
+                        .get("SHIFTY")
+                        .and_then(|val| val.parse().ok())
+                        .unwrap_or_default();
+                    if let Some((_next_nr, next_line)) = lines.peek() {
+                        let t: Vec<f64> = next_line
+                            .split(',')
+                            .step_by(2)
+                            .map(str::trim)
+                            .filter_map(|num| num.parse().ok())
+                            .collect();
+
+                        let vals: Vec<f64> = next_line
+                            .split(',')
+                            .skip(1)
+                            .step_by(2)
+                            .map(str::trim)
+                            .map(|num| num.parse().unwrap())
+                            .collect();
+
+                        let data = Some(TimeSeries(t, vals));
+
+                        self.project.amplitudes.insert(
+                            name.into(),
+                            Amplitude {
+                                total_time,
+                                shift_x,
+                                shift_y,
+                                data,
+                            },
+                        );
                     }
                 }
                 _ => {}

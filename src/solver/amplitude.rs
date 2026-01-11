@@ -2,7 +2,6 @@ use crate::solver::time::SolverTime;
 
 #[derive(Debug, Clone)]
 pub struct Amplitude {
-    pub name: String,
     /// Defines, if the time-values are defined in reference to the total simulation time (over multiple steps)
     pub total_time: bool,
     pub shift_x: f64,
@@ -13,7 +12,6 @@ pub struct Amplitude {
 impl Default for Amplitude {
     fn default() -> Self {
         Self {
-            name: "default".into(),
             total_time: false,
             shift_x: 0.,
             shift_y: 0.,

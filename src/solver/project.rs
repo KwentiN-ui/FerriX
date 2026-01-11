@@ -1,4 +1,4 @@
-use crate::solver::ids::ElementId;
+use crate::solver::{amplitude::Amplitude, ids::ElementId};
 use std::{
     collections::HashMap,
     error::Error,
@@ -45,6 +45,8 @@ pub struct Project {
     pub nodal_output: Vec<String>,
     /// Element output variables requested by the user (e.g. `S`, `E`).
     pub element_output: Vec<String>,
+    /// Amplitude definitions as defined in the input file.
+    pub amplitudes: HashMap<String, Amplitude>,
 }
 
 impl Project {
