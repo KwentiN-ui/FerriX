@@ -266,6 +266,20 @@ impl<'a> Parser<'a> {
                         );
                     }
                 }
+                Keyword::Boundary => {
+                    let kwargs = get_keyword_arguments(line);
+                    let amplitude_name: Option<&str> = kwargs.get("AMPLITUDE").map(|v| &**v);
+                    if let Some((_next_nr, next_line)) = lines.peek() {
+                        self.parse_boundary(next_line, amplitude_name);
+                    }
+                }
+                Keyword::Cload => {
+                    let kwargs = get_keyword_arguments(line);
+                    let amplitude_name: Option<&str> = kwargs.get("AMPLITUDE").map(|v| &**v);
+                    if let Some((_next_nr, next_line)) = lines.peek() {
+                        self.parse_cload(next_line, amplitude_name);
+                    }
+                }
                 _ => {}
             }
         } else {
@@ -283,8 +297,6 @@ impl<'a> Parser<'a> {
                 Keyword::Nset => self.parse_nset(line),
                 Keyword::Elset => self.parse_elset(line),
                 Keyword::Elastic => self.parse_elastic(line),
-                Keyword::Cload => self.parse_cload(line),
-                Keyword::Boundary => self.parse_boundary(line),
                 Keyword::NodeFile => {
                     self.project
                         .nodal_output
@@ -295,7 +307,7 @@ impl<'a> Parser<'a> {
                         .element_output
                         .extend(line.split(',').map(str::trim).map(str::to_string));
                 }
-                _ => {} // For now
+                _ => {}
             }
         }
     }
@@ -397,7 +409,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_cload(&mut self, line: &str) {
+    fn parse_cload(&mut self, line: &str, amplitude_name: Option<&str>) {
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
         if parts.len() >= 3 {
             let target = parts[0];
@@ -424,7 +436,10 @@ impl<'a> Parser<'a> {
                         node_id,
                         dof_in - 1,
                         val,
-                        None,
+                        match amplitude_name {
+                            Some(name) => self.project.amplitudes.get(name).cloned(),
+                            None => None,
+                        },
                     ));
                     self.load_id_counter += 1;
                 }
@@ -432,7 +447,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_boundary(&mut self, line: &str) {
+    fn parse_boundary(&mut self, line: &str, amplitude_name: Option<&str>) {
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
         if parts.len() >= 2 {
             let target = parts[0];
@@ -469,7 +484,10 @@ impl<'a> Parser<'a> {
                             node_id,
                             dof_in - 1,
                             val,
-                            None,
+                            match amplitude_name {
+                                Some(name) => self.project.amplitudes.get(name).cloned(),
+                                None => None,
+                            },
                         ));
                         self.bc_id_counter += 1;
                     }

@@ -160,7 +160,6 @@ impl StaticStep {
             crate::solver::solvers::SolverType::Iterative => Box::new(IterativeSolver),
         };
         let delta_u = solver.solve(&k_global, &f_inc, Some(&preconditioner), 1e-8, 10000)?;
-
         Ok(delta_u)
     }
 
