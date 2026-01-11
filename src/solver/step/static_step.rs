@@ -1,9 +1,10 @@
 use crate::solver::assembler::Assembler;
 use crate::solver::ids::NodeId;
+use crate::solver::increment::IncrementData;
 use crate::solver::io::writer::ResultWriter;
 use crate::solver::preconditioner::DiagonalPreconditioner;
 use crate::solver::project::Project;
-use crate::solver::results::{FieldType, NodalResult, StepResult};
+use crate::solver::results::{FieldType, IncResult, NodalResult};
 use crate::solver::solvers::SolverType;
 use crate::solver::solvers::{Solver, direct::DirectSolver, iterative::IterativeSolver};
 use crate::solver::state::SolutionState;
@@ -14,16 +15,7 @@ use std::error::Error;
 #[derive(Debug, Clone)]
 pub struct StaticStep {
     pub solver: SolverType,
-    /// The simulation aborts if this number of increments is reached
-    pub max_increments: usize,
-    /// First time increment. Subsequent increments are chosen automatically
-    pub initial_time_increment: f64,
-    /// Length of the timestep
-    pub time_period: f64,
-    /// Minimum allowed time increment
-    pub min_time_increment: f64,
-    /// Maximum allowed time increment. Choose a lower amount if you want more result files
-    pub max_time_increment: f64,
+    pub increment_data: IncrementData,
 }
 
 impl StaticStep {
@@ -32,18 +24,25 @@ impl StaticStep {
         step_id: usize,
         project: &Project,
         solution_state: &mut SolutionState,
-        writer: &mut dyn ResultWriter,
+        writer: &Box<dyn ResultWriter>,
     ) -> Result<(), Box<dyn Error>> {
         println!("--- Step {step_id}: StaticStep ---");
 
         let mut current_time = 0.0;
         let mut n_inc = 0;
-        let time_increment = self.time_period;
+        let time_increment = self.increment_data.time_period;
 
-        while current_time < self.time_period {
+        while current_time < self.increment_data.time_period {
             n_inc += 1;
+            if n_inc > self.increment_data.max_iterations {
+                return Err(format![
+                    "Maximum increment count of {} exceeded.",
+                    self.increment_data.max_iterations,
+                ]
+                .into());
+            }
             current_time += time_increment;
-            println!("Increment {} | Time: {:.4e}", n_inc, current_time);
+            println!("Increment {n_inc} | Time: {current_time:.4e}");
 
             // 1. Setup
             let num_nodes = project.mesh.nodes.len();
@@ -103,7 +102,7 @@ impl StaticStep {
             }
 
             // --- Create results for this step ---
-            let mut step_res = StepResult::new(step_id, "Static Step", current_time);
+            let mut step_res = IncResult::new(step_id, n_inc, "Static Step", current_time);
 
             // Nodal results
             let mut nodal_displacement = NodalResult::new("U", FieldType::Displacement);
@@ -123,7 +122,7 @@ impl StaticStep {
             step_res.nodal_results.push(nodal_stress);
             step_res.nodal_results.push(nodal_strain);
 
-            writer.write(&step_res)?;
+            writer.write_increment(&step_res)?;
         }
 
         Ok(())

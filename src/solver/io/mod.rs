@@ -1,22 +1,23 @@
 use derive_more::{Display, FromStr};
 
-use crate::solver::io::{pvd::PvdWriter, writer::ResultWriter};
+use crate::solver::{
+    io::{vtk::VtkWriter, writer::ResultWriter},
+    project::Project,
+};
 
-pub mod pvd;
 pub mod vtk;
 pub mod writer;
 
 #[derive(Debug, Clone, Display, FromStr)]
 pub enum OutputFormat {
-    #[display("PVD")]
-    Pvd,
+    #[display("VTK")]
+    Vtk,
 }
 
 impl OutputFormat {
-    pub fn get_writer(&self) -> Box<dyn ResultWriter> {
+    pub fn get_writer(&self, project: &Box<Project>) -> Box<dyn ResultWriter> {
         match self {
-            OutputFormat::Pvd => Box::new(PvdWriter::new()),
+            OutputFormat::Vtk => Box::new(VtkWriter::new(project.clone())),
         }
     }
 }
-

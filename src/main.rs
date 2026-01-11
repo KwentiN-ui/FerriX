@@ -2,11 +2,7 @@ use chrono::{Local, Utc};
 use clap::Parser;
 use rayon::ThreadPoolBuilder;
 
-use crate::solver::{
-    io::OutputFormat,
-    project::Project,
-    state::SolutionState,
-};
+use crate::solver::{io::OutputFormat, project::Project, state::SolutionState};
 
 mod solver;
 
@@ -37,13 +33,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Main solver loop ---
     let num_dofs = project.mesh.nodes.len() * 3;
     let mut solution_state = SolutionState::new(num_dofs);
-    let mut writer = args.output_format.get_writer();
-
-    writer.init(&project)?;
+    let writer = args.output_format.get_writer(&project);
 
     for (i, step) in project.steps.iter().enumerate() {
         let step_id = i + 1;
-        if let Err(e) = step.solve(step_id, &project, &mut solution_state, writer.as_mut()) {
+        if let Err(e) = step.solve(step_id, &project, &mut solution_state, &writer) {
             eprintln!("Error occurred in step {step_id}: {e}\n\n");
             break;
         }
@@ -51,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     // --- End main solver loop ---
 
-    writer.finish()?;
+    writer.finish();
 
     println!("Job finished");
     println!(
@@ -71,7 +65,7 @@ pub struct Args {
     #[arg(short, long, default_value_t = DEFAULT_THREADS)]
     num_threads: usize,
 
-    #[arg(short, long, default_value_t = OutputFormat::Pvd)]
+    #[arg(short, long, default_value_t = OutputFormat::Vtk)]
     output_format: OutputFormat,
 
     /// Output path to write the preprocessed .inp file into. Useful for debugging

@@ -88,14 +88,13 @@ impl Project {
         if let Some(out) = preprocess_output {
             fs::write(out, &input_content)?;
         }
-        
+
         let input = InpFile::new(&input_content);
         let mut project = Parser::new(&input).parse()?;
-        
+
         project.filepath = path;
         project.input = Box::new(input);
-        
-        
+
         Ok(project)
     }
 
@@ -107,5 +106,10 @@ impl Project {
             .to_str()
             .expect("There is no reason why this should fail")
             .to_string()
+    }
+
+    /// Filepath to the output directory
+    pub fn job_dir(&self) -> PathBuf {
+        self.filepath.parent().expect("Invalid filepath.").into()
     }
 }

@@ -1,15 +1,9 @@
-use crate::solver::project::Project;
-use crate::solver::results::StepResult;
+use crate::solver::results::IncResult;
 use std::error::Error;
 
 /// Trait for writing output formats
 pub trait ResultWriter {
-    /// Called once before the main solver loop.
-    fn init(&mut self, project: &Project) -> Result<(), Box<dyn Error>>;
-
-    /// Called for each increment.
-    fn write(&mut self, result: &StepResult) -> Result<(), Box<dyn Error>>;
-
-    /// Called once after the main solver loop.
-    fn finish(&mut self) -> Result<(), Box<dyn Error>>;
+    fn write_increment(&self, inc_result: &IncResult) -> Result<(), Box<dyn Error>>;
+    /// Is called at the very end of the analysis. Can be used for cleanup, etc.
+    fn finish(&self);
 }

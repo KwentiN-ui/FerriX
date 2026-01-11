@@ -19,7 +19,7 @@ impl Step {
         step_id: usize,
         project: &Project,
         solution_state: &mut SolutionState,
-        writer: &mut dyn ResultWriter,
+        writer: &Box<dyn ResultWriter>,
     ) -> Result<(), Box<dyn Error>> {
         match self {
             Step::StaticStep(static_step) => {

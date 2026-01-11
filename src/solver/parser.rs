@@ -1,4 +1,5 @@
 use crate::solver::ids::{BoundaryConditionId, ElementId, LoadId, NodeId};
+use crate::solver::increment::IncrementData;
 use crate::solver::inp::InpFile;
 use crate::solver::material::Material;
 use crate::solver::mesh_lib::elements::element::Element;
@@ -90,6 +91,7 @@ impl<'a> Parser<'a> {
         Ok(self.project)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn parse_keyword(
         &mut self,
         line: &str,
@@ -170,19 +172,19 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Keyword::Step => {
-                    let max_increments: usize = parse_keyword_arguments(line)
+                    let max_iterations: usize = get_keyword_arguments(line)
                         .get("INC")
                         .and_then(|s| s.parse().ok())
-                        .unwrap_or(100);
+                        .unwrap_or(10000);
 
                     if let Some((_next_nr, next_line)) = lines.peek() {
                         if next_line.starts_with("*STATIC") {
-                            let step_kwargs = parse_keyword_arguments(next_line);
+                            let step_kwargs = get_keyword_arguments(next_line);
                             let solver = match step_kwargs.get("SOLVER") {
                                 Some(solver_str) => match *solver_str {
                                     "DIRECT" => SolverType::Direct,
                                     "ITERATIVE" => SolverType::Iterative,
-                                    _ => panic!("Unknown solver type: {}", solver_str),
+                                    _ => panic!("Unknown solver type: {solver_str}"),
                                 },
                                 None => SolverType::Default,
                             };
@@ -191,27 +193,24 @@ impl<'a> Parser<'a> {
                             lines.next();
 
                             if let Some((_data_nr, data_line)) = lines.next() {
-                                let time_data: Vec<f64> = data_line
-                                    .split(',')
-                                    .filter_map(|s| s.trim().parse().ok())
-                                    .collect();
-
-                                if time_data.len() >= 4 {
-                                    let static_step = StaticStep {
-                                        solver,
-                                        max_increments,
-                                        initial_time_increment: time_data[0],
-                                        time_period: time_data[1],
-                                        min_time_increment: time_data[2],
-                                        max_time_increment: time_data[3],
-                                    };
-                                    self.project.steps.push(Step::StaticStep(static_step));
-                                } else {
-                                    // Handle error: not enough time data
-                                    return Err(
-                                        "Not enough values for *STATIC time data".to_string()
-                                    );
+                                let mut increment: IncrementData = IncrementData {
+                                    max_iterations,
+                                    ..Default::default()
+                                };
+                                if !data_line.starts_with('*') {
+                                    // Increment data was supplied in INP
+                                    let args = get_positional_arguments(data_line);
+                                    increment.initial_time_increment = args[0].parse().unwrap();
+                                    increment.time_period = args[1].parse().unwrap();
+                                    increment.min_time_increment = args[2].parse().unwrap();
+                                    increment.max_time_increment = args[3].parse().unwrap();
                                 }
+
+                                let static_step = StaticStep {
+                                    solver,
+                                    increment_data: increment,
+                                };
+                                self.project.steps.push(Step::StaticStep(static_step));
                             } else {
                                 // Handle error: no data line after *STATIC
                                 return Err("Expected data line after *STATIC".to_string());
@@ -430,14 +429,14 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn parse_keyword_arguments(line: &str) -> HashMap<&str, &str> {
+fn get_keyword_arguments(line: &str) -> HashMap<&str, &str> {
     line.split(',')
         .filter_map(|s| s.split_once('='))
-        .map(|(k, v)| (k.trim().into(), v.trim().into()))
+        .map(|(k, v)| (k.trim(), v.trim()))
         .collect()
 }
 
-fn parse_postional_arguments(line: &str) -> Vec<&str> {
+fn get_positional_arguments(line: &str) -> Vec<&str> {
     line.split(',').map(str::trim).collect()
 }
 
@@ -502,14 +501,14 @@ mod tests {
     #[test]
     fn keyword_args() {
         let line = "*STEP , INC =  100";
-        let args = parse_keyword_arguments(line);
+        let args = get_keyword_arguments(line);
         assert!(args["INC"] == "100".to_string());
     }
 
     #[test]
     fn positional_args() {
         let line = "0.1, 1, 1E-05, 0.2";
-        let args = parse_postional_arguments(line);
+        let args = get_positional_arguments(line);
         assert_equal(
             args,
             vec![
