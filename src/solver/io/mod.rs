@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use derive_more::{Display, FromStr};
 
 use crate::solver::{
@@ -15,9 +17,9 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
-    pub fn get_writer(&self, project: &Box<Project>) -> Box<dyn ResultWriter> {
+    pub fn get_writer(&self, project: Arc<Project>) -> Box<dyn ResultWriter> {
         match self {
-            OutputFormat::Vtk => Box::new(VtkWriter::new(project.clone())),
+            OutputFormat::Vtk => Box::new(VtkWriter::new(project)),
         }
     }
 }

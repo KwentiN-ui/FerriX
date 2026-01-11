@@ -24,7 +24,7 @@ impl StaticStep {
         step_id: usize,
         project: &Project,
         solution_state: &mut SolutionState,
-        writer: &Box<dyn ResultWriter>,
+        writer: &dyn ResultWriter,
     ) -> Result<(), Box<dyn Error>> {
         println!("--- Step {step_id}: StaticStep ---");
 
@@ -107,7 +107,7 @@ impl StaticStep {
             // Nodal results
             let mut nodal_displacement = NodalResult::new("U", FieldType::Displacement);
             let (nodal_stress, nodal_strain) =
-                self.calculate_stress_strain(project, solution_state);
+                Self::calculate_stress_strain(project, solution_state);
 
             for (matrix_idx, &node_id) in project.mesh.index_to_node_id.iter().enumerate() {
                 let idx = matrix_idx * 3;
@@ -130,7 +130,6 @@ impl StaticStep {
 
     #[allow(clippy::cast_precision_loss)]
     fn calculate_stress_strain(
-        &self,
         project: &Project,
         solution_state: &SolutionState,
     ) -> (NodalResult, NodalResult) {

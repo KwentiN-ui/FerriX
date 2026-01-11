@@ -1,6 +1,7 @@
 use std::error::Error;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufWriter, Write};
+use std::sync::Arc;
 
 use super::writer::ResultWriter;
 use crate::solver::mesh_lib::elements::element::Element;
@@ -9,11 +10,11 @@ use crate::solver::results::{FieldType, IncResult};
 use nalgebra::{Matrix3, SymmetricEigen};
 
 pub struct VtkWriter {
-    project: Box<Project>,
+    project: Arc<Project>,
 }
 
 impl VtkWriter {
-    pub fn new(project: Box<Project>) -> Self {
+    pub fn new(project: Arc<Project>) -> Self {
         Self { project }
     }
 }
@@ -21,10 +22,15 @@ impl VtkWriter {
 impl ResultWriter for VtkWriter {
     #[allow(clippy::too_many_lines)]
     fn write_increment(&self, inc_result: &IncResult) -> Result<(), Box<dyn Error>> {
+        // Create output directory
+        let dirpath = self.project.job_dir().join(self.project.jobname());
+        fs::create_dir_all(&dirpath)?;
+
         // Creates a new folder with the jobname and writes increments into it
-        let file = File::create(self.project.job_dir().join(self.project.jobname()).join(
-            format!["step_{}_{}.vtk", inc_result.step_id, inc_result.inc_id],
-        ))?;
+        let file = File::create(dirpath.join(format![
+            "step_{}_{}.vtk",
+            inc_result.step_id, inc_result.inc_id
+        ]))?;
         let mut w = BufWriter::new(file);
 
         // --- Header ---

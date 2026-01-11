@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use chrono::{Local, Utc};
 use clap::Parser;
 use rayon::ThreadPoolBuilder;
@@ -16,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .num_threads(args.num_threads)
         .build_global()?;
 
-    let project = Box::new(Project::from_jobname(&args.jobname, None)?);
+    let project = Arc::new(Project::from_jobname(&args.jobname, None)?);
 
     println!("{}\n", Local::now().format("%d.%m.%y, %H:%M:%S"));
     println!("{LOGO}");
@@ -33,11 +35,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Main solver loop ---
     let num_dofs = project.mesh.nodes.len() * 3;
     let mut solution_state = SolutionState::new(num_dofs);
-    let writer = args.output_format.get_writer(&project);
+    let writer = args.output_format.get_writer(project.clone());
 
     for (i, step) in project.steps.iter().enumerate() {
         let step_id = i + 1;
-        if let Err(e) = step.solve(step_id, &project, &mut solution_state, &writer) {
+        if let Err(e) = step.solve(step_id, &project, &mut solution_state, &*writer) {
             eprintln!("Error occurred in step {step_id}: {e}\n\n");
             break;
         }
