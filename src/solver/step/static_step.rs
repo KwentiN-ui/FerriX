@@ -89,7 +89,7 @@ impl StaticStep {
                     inc_res.nodal_results.push(nodal_stress);
                     inc_res.nodal_results.push(nodal_strain);
 
-                    writer.write_increment(&inc_res)?;
+                    writer.write_increment(&inc_res, timer)?;
 
                     // Save the displacement from this increment to update the step state later
                     last_u_for_step = Some(u_step_total);

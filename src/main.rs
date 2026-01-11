@@ -38,6 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut solution_state = SolutionState::new(num_dofs);
     let writer = args.output_format.get_writer(project.clone());
 
+    writer.init().unwrap();
+
     for (i, step) in project.steps.iter().enumerate() {
         // Each step needs to call the simulation_time methods internally to advance the time properly!
         let step_id = i + 1;
@@ -55,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     // --- End main solver loop ---
 
-    writer.finish();
+    let _ = writer.finish();
 
     println!("Job finished");
     println!(

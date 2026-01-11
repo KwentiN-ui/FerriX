@@ -1,12 +1,14 @@
 use std::error::Error;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::writer::ResultWriter;
 use crate::solver::mesh_lib::elements::element::Element;
 use crate::solver::project::Project;
 use crate::solver::results::{FieldType, IncResult};
+use crate::solver::time::SolverTime;
 use nalgebra::{Matrix3, SymmetricEigen};
 
 pub struct VtkWriter {
@@ -17,20 +19,40 @@ impl VtkWriter {
     pub fn new(project: Arc<Project>) -> Self {
         Self { project }
     }
+    fn dirpath(&self) -> PathBuf {
+        self.project.job_dir().join(self.project.jobname())
+    }
 }
 
+const SERIES_FILENAME: &str = "results.vtk.series";
+
 impl ResultWriter for VtkWriter {
-    #[allow(clippy::too_many_lines)]
-    fn write_increment(&self, inc_result: &IncResult) -> Result<(), Box<dyn Error>> {
-        // Create output directory
-        let dirpath = self.project.job_dir().join(self.project.jobname());
+    fn init(&self) -> Result<(), Box<dyn Error>> {
+        let dirpath = self.dirpath();
         fs::create_dir_all(&dirpath)?;
 
+        let series = File::create(dirpath.join(SERIES_FILENAME))?;
+        let mut w = BufWriter::new(series);
+        writeln!(
+            w,
+            "{{
+          \"file-series-version\" : \"1.0\",
+          \"files\" : ["
+        )?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn write_increment(
+        &self,
+        inc_result: &IncResult,
+        timer: &SolverTime,
+    ) -> Result<(), Box<dyn Error>> {
+        // Create output directory
+
         // Creates a new folder with the jobname and writes increments into it
-        let file = File::create(dirpath.join(format![
-            "step_{}_{}.vtk",
-            inc_result.step_id, inc_result.inc_id
-        ]))?;
+        let filename = format!["step_{}_{}.vtk", inc_result.step_id, inc_result.inc_id];
+        let file = File::create(self.dirpath().join(&filename))?;
         let mut w = BufWriter::new(file);
 
         // --- Header ---
@@ -189,8 +211,29 @@ impl ResultWriter for VtkWriter {
                 }
             }
         }
+
+        // add file to series
+        let series = OpenOptions::new()
+            .append(true)
+            .open(self.dirpath().join(SERIES_FILENAME))?;
+        let mut w = BufWriter::new(series);
+        writeln!(
+            w,
+            "{{ \"name\" : \"{}\", \"time\" : {} }},",
+            &filename,
+            timer.global_time()
+        )?;
+
         Ok(())
     }
 
-    fn finish(&self) {}
+    fn finish(&self) -> Result<(), Box<dyn Error>> {
+        let series = OpenOptions::new()
+            .append(true)
+            .open(self.dirpath().join(SERIES_FILENAME))?;
+
+        let mut w = BufWriter::new(series);
+        writeln!(w, "  ]\n}}")?; // Schließt das "files"-Array und das Hauptobjekt
+        Ok(())
+    }
 }
