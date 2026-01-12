@@ -270,14 +270,22 @@ impl<'a> Parser<'a> {
                     let kwargs = get_keyword_arguments(line);
                     let amplitude_name: Option<&str> = kwargs.get("AMPLITUDE").map(|v| &**v);
                     if let Some((_next_nr, next_line)) = lines.peek() {
-                        self.parse_boundary(next_line, amplitude_name);
+                        if !next_line.starts_with('*') {
+                            self.parse_boundary(next_line, amplitude_name);
+                        }
                     }
                 }
                 Keyword::Cload => {
                     let kwargs = get_keyword_arguments(line);
                     let amplitude_name: Option<&str> = kwargs.get("AMPLITUDE").map(|v| &**v);
-                    if let Some((_next_nr, next_line)) = lines.peek() {
-                        self.parse_cload(next_line, amplitude_name);
+                    while let Some((_next_nr, next_line)) = lines.peek() {
+                        if next_line.starts_with('*') {
+                            break;
+                        }
+
+                        if let Some((_, line_content)) = lines.next() {
+                            self.parse_cload(line_content, amplitude_name);
+                        }
                     }
                 }
                 _ => {}

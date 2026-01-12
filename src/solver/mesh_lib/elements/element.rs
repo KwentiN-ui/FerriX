@@ -145,20 +145,11 @@ impl Element {
 
         let jacobian = &dn_local * node_coords.transpose();
 
-        // DEBUG
-        let (rows, cols) = jacobian.shape();
-        if rows != cols {
-            panic!(
-                "Jacobian ist nicht quadratisch! Dimension: {}x{}. Checke Element-Typ.",
-                rows, cols
-            );
-        }
-
         let det = jacobian.determinant();
         if det.abs() < 1e-10 {
-            println!("Singular Jacobian det={}", det);
-            println!("Node IDs: {:?}", node_ids);
-            for (i, id) in node_ids.iter().enumerate() {
+            println!("Singular Jacobian det={det}");
+            println!("Node IDs: {node_ids:?}");
+            for id in node_ids {
                 println!("Node {}: {:?}", id, mesh.nodes.get(id));
             }
             // Falls det genau 0 ist, sind die Knoten eventuell koplanar oder IDs doppelt
@@ -172,7 +163,7 @@ impl Element {
 
         let u_el_vec = DVector::from_column_slice(u_el);
         let strain = &b_mat * u_el_vec;
-        let stress = (d_mat * &strain);
+        let stress = d_mat * &strain;
 
         (strain, stress)
     }

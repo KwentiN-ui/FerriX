@@ -5,10 +5,10 @@ use nalgebra::{SMatrix, SVector};
 /// Returns shape functions N and their derivatives dN/d(xi, eta, zeta)
 ///
 /// The shape functions are:
-/// $N_1 = 1 - \xi - \eta - \zeta$
-/// $N_2 = \xi$
-/// $N_3 = \eta$
-/// $N_4 = \zeta$
+/// `N_1` = 1 - \xi - \eta - \zeta
+/// `N_2` = \xi
+/// `N_3` = \eta
+/// `N_4` = \zeta
 pub fn shape_func_c3d4(xi: f64, eta: f64, zeta: f64) -> (SVector<f64, 4>, SMatrix<f64, 3, 4>) {
     // SVector and SMatrix are stack-allocated
     let n = SVector::<f64, 4>::new(1.0 - xi - eta - zeta, xi, eta, zeta);
