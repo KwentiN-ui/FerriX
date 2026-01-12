@@ -58,7 +58,7 @@ impl StaticStep {
                 timer.local_time()
             );
 
-            match self.next_increment(project, timer) {
+            match self.next_increment(project, timer, true) {
                 Ok(u_step_total) => {
                     current_time += increment_time;
 
@@ -114,7 +114,12 @@ impl StaticStep {
         Ok(())
     }
 
-    fn next_increment(&self, project: &Project, timer: &SolverTime) -> Result<Vec<f64>, String> {
+    fn next_increment(
+        &self,
+        project: &Project,
+        timer: &SolverTime,
+        is_symmetric: bool,
+    ) -> Result<Vec<f64>, String> {
         // 1. Setup
         let num_nodes = project.mesh.nodes.len();
         if num_nodes == 0 {
@@ -138,7 +143,7 @@ impl StaticStep {
         }
 
         // 3. Assemble stiffness matrix
-        let (mut triplet, max_diag_val) = Assembler::assemble(project)?;
+        let (mut triplet, max_diag_val) = Assembler::assemble(project, is_symmetric)?;
 
         // 4. Apply boundary conditions (Penalty Method)
         if max_diag_val > 0.0 {
