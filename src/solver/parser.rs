@@ -226,7 +226,10 @@ impl<'a> Parser<'a> {
                         self.project.steps.push(Step::StaticStep(step));
                     }
 
-                    let max_iterations: usize = get_keyword_arguments(line)
+                    let step_args = get_keyword_arguments(line);
+                    let nlgeom = step_args.contains_key("NLGEOM");
+
+                    let max_iterations: usize = step_args
                         .get("INC")
                         .and_then(|s| s.parse().ok())
                         .unwrap_or(10000);
@@ -302,6 +305,7 @@ impl<'a> Parser<'a> {
                                 increment_data: increment,
                                 loads: Vec::new(),
                                 bcs: Vec::new(),
+                                nlgeom,
                             });
                         }
                     }

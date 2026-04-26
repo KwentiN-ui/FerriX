@@ -156,6 +156,60 @@ impl Element {
         }
     }
 
+    /// Computes the element internal force vector.
+    ///
+    /// # Errors
+    /// Returns an error if a node is not found in the mesh or numerical errors occur.
+    pub fn compute_internal_force(
+        &self,
+        mesh: &Mesh,
+        u_el: &[f64],
+        d_mat: &DMatrix<f64>,
+    ) -> Result<DVector<f64>> {
+        match self {
+            Element::C3D4(_, node_ids) => {
+                let num_nodes = node_ids.len();
+                let mut f_int = DVector::<f64>::zeros(num_nodes * 3);
+
+                let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
+                for (i, &node_id) in node_ids.iter().enumerate() {
+                    let coords = mesh
+                        .nodes
+                        .get(&node_id)
+                        .ok_or(FerrixError::NodeNotFound(node_id))?;
+                    node_coords[(0, i)] = coords.x;
+                    node_coords[(1, i)] = coords.y;
+                    node_coords[(2, i)] = coords.z;
+                }
+
+                for gp in self.integration_points() {
+                    let (_, dn_local) =
+                        self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+                    let jacobian = &dn_local * node_coords.transpose();
+                    let det_j = jacobian.determinant();
+                    let inv_j = jacobian
+                        .try_inverse()
+                        .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+                    let dn_global = inv_j * dn_local;
+                    let weight = det_j.abs() * gp.weight;
+
+                    // B matrix at this integration point
+                    let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
+
+                    // Stress at this integration point: sigma = D * B * u_el
+                    let u_el_vec = DVector::from_column_slice(u_el);
+                    let strain = &b_mat * u_el_vec;
+                    let stress = d_mat * &strain;
+
+                    // Internal force contribution: integral(B^T * sigma * dV)
+                    f_int.add_assign(&(b_mat.transpose() * stress * weight));
+                }
+
+                Ok(f_int)
+            }
+        }
+    }
+
     /// Calculates stress and strain at the integration point.
     ///
     /// # Errors

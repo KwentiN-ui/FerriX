@@ -134,3 +134,37 @@ The following improvements have been implemented in the Rust version to align mo
     *   The `Parser` now uses a `step_counter` and tracks the `current_step` context, correctly assigning data to the active step or the global project state.
 
 **Current Status:** The core architecture now supports basic multi-step analysis with correct state accumulation and load persistence, matching the fundamental logic of CalculiX's linear static steps.
+
+---
+
+## 8. Nonlinear Analysis Handling
+
+Currently, the Rust implementation does **not** support nonlinear analysis. 
+
+### Status:
+1.  **Linear Formulation:** The `StaticStep::solve` and `StaticStep::next_increment` methods use a linear static formulation. They assemble the stiffness matrix once per increment based on the initial geometry and solve for the total displacement.
+2.  **Newton-Raphson Loop:** There is no iterative loop to minimize residuals ( = F_{ext} - F_{int}$) within an increment.
+3.  **Constitutive Models:** `Material` is currently restricted to linear elasticity. Nonlinear material models (plasticity, hyperelasticity) are not yet implemented.
+4.  **Geometric Nonlinearity:** Element stiffness calculations (`compute_stiffness`) use the initial configuration. An updated Lagrangian formulation for `NLGEOM` support is missing.
+
+### Recommended Path for Nonlinear Support:
+*   **Newton-Raphson Orchestrator:** Implement an iteration loop in `StaticStep` that checks for force and displacement convergence.
+*   **Residual Calculation:** Implement a method to calculate the internal force vector {int}$ by integrating stresses over element volumes.
+*   **Geometric Nonlinearity:** Add support for tracking the deformed configuration and updating the Jacobian/B-matrix accordingly.
+*   **Nonlinear Material Interface:** Extend the `Material` trait to handle state-dependent constitutive updates (e.g., return tangent stiffness and updated stress).
+
+# Roadmap for contacts
+1.  **Refactor `StaticStep` to Non-Linear:** 
+    *   Implement an inner Newton-Raphson iteration loop.
+    *   Implement the calculation of the global Internal Force vector ($F_{int}$).
+    *   Add residual convergence checking ($||F_{ext} - F_{int}|| < tol$).
+2.  **Geometric Nonlinearity (NLGEOM):** 
+    *   Implement updated coordinates ( deformed mesh ).
+    *   Calculate stiffness based on the deformed state.
+3.  **Basic Constraint Equations (MPCs):** 
+    *   Implement Multi-Point Constraints (`*EQUATION`). This lays the mathematical groundwork for tying nodes together, which is a simpler precursor to tying them together conditionally (contact).
+4.  **Surface Projections:** 
+    *   Build the math to project a point onto a 3D triangle/quadrilateral.
+5.  **Finally, Contact Mechanics:** 
+    *   Parse `*CONTACT PAIR`.
+    *   Implement a basic Node-to-Surface Penalty contact algorithm using the Newton-Raphson loop built in Step 1.

@@ -80,4 +80,52 @@ impl Assembler {
         }
         Ok((triplet, max_diag_val))
     }
+
+    /// Assembles the global internal force vector.
+    ///
+    /// # Errors
+    /// Returns an error if the element internal forces cannot be computed.
+    pub fn assemble_internal_force(project: &Project, u_global: &[f64]) -> Result<Vec<f64>> {
+        let num_nodes = project.mesh.nodes.len();
+        let num_dofs = num_nodes * 3;
+        let mut f_int_global = vec![0.0; num_dofs];
+
+        for element in project.mesh.elements.values() {
+            let material_index = project
+                .element_materials
+                .get(&element.get_id())
+                .ok_or_else(|| {
+                    FerrixError::InvalidModelState(format!(
+                        "Element {} has no material assigned.",
+                        element.get_id()
+                    ))
+                })?;
+            let material = &project.materials[*material_index];
+            let d_matrix = material.build_elastic_d_matrix();
+
+            let node_ids = element.get_node_ids();
+            let mut u_el = Vec::with_capacity(node_ids.len() * 3);
+            for &node_id in node_ids {
+                let global_idx = project
+                    .mesh
+                    .get_index_for_node_id(node_id)
+                    .ok_or(FerrixError::NodeNotFound(node_id))?;
+                u_el.extend_from_slice(&u_global[global_idx * 3..global_idx * 3 + 3]);
+            }
+
+            let f_int_el = element.compute_internal_force(&project.mesh, &u_el, &d_matrix)?;
+
+            for (i, _) in node_ids.iter().enumerate() {
+                let global_idx = project
+                    .mesh
+                    .get_index_for_node_id(node_ids[i])
+                    .ok_or(FerrixError::NodeNotFound(node_ids[i]))?;
+                for dof in 0..3 {
+                    f_int_global[global_idx * 3 + dof] += f_int_el[i * 3 + dof];
+                }
+            }
+        }
+
+        Ok(f_int_global)
+    }
 }
