@@ -9,7 +9,11 @@ impl Assembler {
     ///
     /// # Errors
     /// Returns an error if the element stiffness matrix cannot be computed.
-    pub fn assemble(project: &Project, is_symmetric: bool) -> Result<(TriMat<f64>, f64)> {
+    pub fn assemble(
+        project: &Project,
+        is_symmetric: bool,
+        u_global: Option<&[f64]>,
+    ) -> Result<(TriMat<f64>, f64)> {
         let num_nodes = project.mesh.nodes.len();
         if num_nodes == 0 {
             return Err(FerrixError::InvalidModelState(
@@ -35,10 +39,27 @@ impl Assembler {
 
             let d_matrix = material.build_elastic_d_matrix();
 
-            // Call the new high-performance method from Element
-            let k_el = element.compute_stiffness(project, &d_matrix, is_symmetric)?;
-
             let node_ids = element.get_node_ids();
+
+            // Extract u_el if u_global is provided
+            let u_el = if let Some(u_glob) = u_global {
+                let mut u_vec = Vec::with_capacity(node_ids.len() * 3);
+                for &node_id in node_ids {
+                    let global_idx = project
+                        .mesh
+                        .get_index_for_node_id(node_id)
+                        .ok_or(FerrixError::NodeNotFound(node_id))?;
+                    u_vec.extend_from_slice(&u_glob[global_idx * 3..global_idx * 3 + 3]);
+                }
+                Some(u_vec)
+            } else {
+                None
+            };
+
+            // Call compute_stiffness with u_el
+            let k_el =
+                element.compute_stiffness(project, &d_matrix, is_symmetric, u_el.as_deref())?;
+
             let num_nodes_el = node_ids.len();
 
             for (i, node_id_i) in node_ids.iter().enumerate().take(num_nodes_el) {

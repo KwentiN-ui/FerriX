@@ -127,6 +127,7 @@ impl Element {
         project: &Project,
         d_mat: &DMatrix<f64>,
         is_symmetric: bool,
+        u_el: Option<&[f64]>,
     ) -> Result<DMatrix<f64>> {
         let d_static = SMatrix::<f64, 6, 6>::from_column_slice(d_mat.as_slice());
 
@@ -139,7 +140,14 @@ impl Element {
                         .nodes
                         .get(&node_id)
                         .ok_or(FerrixError::NodeNotFound(node_id))?;
-                    coords.set_column(i, &nalgebra::Vector3::new(c.x, c.y, c.z));
+
+                    let mut pos = nalgebra::Vector3::new(c.x, c.y, c.z);
+                    if let Some(u) = u_el {
+                        pos[0] += u[i * 3];
+                        pos[1] += u[i * 3 + 1];
+                        pos[2] += u[i * 3 + 2];
+                    }
+                    coords.set_column(i, &pos);
                 }
 
                 // Fix: Pass DOF (12) explicitly as second parameter to avoid const math
@@ -177,9 +185,9 @@ impl Element {
                         .nodes
                         .get(&node_id)
                         .ok_or(FerrixError::NodeNotFound(node_id))?;
-                    node_coords[(0, i)] = coords.x;
-                    node_coords[(1, i)] = coords.y;
-                    node_coords[(2, i)] = coords.z;
+                    node_coords[(0, i)] = coords.x + u_el[i * 3];
+                    node_coords[(1, i)] = coords.y + u_el[i * 3 + 1];
+                    node_coords[(2, i)] = coords.z + u_el[i * 3 + 2];
                 }
 
                 for gp in self.integration_points() {

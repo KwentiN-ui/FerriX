@@ -128,7 +128,13 @@ impl StaticStep {
                 }
 
                 // 5. Assemble Tangent Stiffness Matrix K
-                let (mut triplet, max_diag_val) = Assembler::assemble(project, true)?;
+                // If NLGEOM is active, we use the current displacement to calculate the tangent.
+                // Otherwise we always use the initial state (Linear).
+                let (mut triplet, max_diag_val) = Assembler::assemble(
+                    project,
+                    true,
+                    if self.nlgeom { Some(&u_curr) } else { None },
+                )?;
 
                 // 6. Apply Boundary Conditions (Penalty Method) to Tangent Matrix
                 // For NR, we solve K * du = R.
