@@ -1,7 +1,7 @@
+use crate::solver::error::{FerrixError, Result};
 use crate::solver::{amplitude::Amplitude, ids::ElementId};
 use std::{
     collections::HashMap,
-    error::Error,
     fmt::Write,
     fs::{self, read_to_string},
     path::PathBuf,
@@ -61,7 +61,11 @@ impl Project {
 
         let _ = writeln!(info, "--- Project Info ---");
         let _ = writeln!(info, "Jobname:");
-        let _ = writeln!(info, "  {}", self.jobname());
+        let _ = writeln!(
+            info,
+            "  {}",
+            self.jobname().unwrap_or_else(|_| "Unknown".to_string())
+        );
         let _ = writeln!(info, "Mesh:");
         let _ = writeln!(info, "  Nodes: {}", self.mesh.nodes.len());
         let _ = writeln!(info, "  Elements:");
@@ -80,7 +84,7 @@ impl Project {
     pub fn from_jobname(
         jobname_filepath: &str,
         preprocess_output: Option<&String>,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Self> {
         let mut path = PathBuf::from(jobname_filepath);
 
         if !path
@@ -92,9 +96,16 @@ impl Project {
             path = PathBuf::from(s);
         }
 
-        let input_content = read_to_string(&path)?;
+        let input_content = read_to_string(&path).map_err(|e| FerrixError::Io {
+            path: path.clone(),
+            source: e,
+        })?;
         if let Some(out) = preprocess_output {
-            fs::write(out, &input_content)?;
+            let out_path = PathBuf::from(out);
+            fs::write(&out_path, &input_content).map_err(|e| FerrixError::Io {
+                path: out_path,
+                source: e,
+            })?;
         }
 
         let input = InpFile::new(&input_content);
@@ -108,24 +119,28 @@ impl Project {
 
     /// Gets the jobname from a filepath.
     ///
-    /// # Panics
-    /// Panics if the jobname cannot be inferred.
-    #[must_use]
-    pub fn jobname(&self) -> String {
-        self.filepath
+    /// # Errors
+    /// Returns an error if the jobname cannot be inferred.
+    pub fn jobname(&self) -> Result<String> {
+        let stem = self
+            .filepath
             .file_stem()
-            .expect("The jobname could not be inferred by the given arguments.")
+            .ok_or_else(|| {
+                FerrixError::InvalidModelState("Could not infer jobname from path".into())
+            })?
             .to_str()
-            .expect("There is no reason why this should fail")
-            .to_string()
+            .ok_or_else(|| FerrixError::InvalidModelState("Invalid UTF-8 in jobname".into()))?;
+        Ok(stem.to_string())
     }
 
     /// Filepath to the output directory
     ///
-    /// # Panics
-    /// Panics if the job directory cannot be inferred.
-    #[must_use]
-    pub fn job_dir(&self) -> PathBuf {
-        self.filepath.parent().expect("Invalid filepath.").into()
+    /// # Errors
+    /// Returns an error if the job directory cannot be inferred.
+    pub fn job_dir(&self) -> Result<PathBuf> {
+        self.filepath
+            .parent()
+            .map(PathBuf::from)
+            .ok_or_else(|| FerrixError::InvalidModelState("Could not infer job directory".into()))
     }
 }

@@ -2,6 +2,7 @@
 
 pub mod amplitude;
 pub mod assembler;
+pub mod error;
 pub mod ids;
 pub mod increment;
 pub mod inp;

@@ -16,18 +16,29 @@ pub struct VtkWriter {
 }
 
 impl VtkWriter {
-    #[must_use] 
+    #[must_use]
     pub fn new(project: Arc<Project>) -> Self {
         Self { project }
     }
     fn dirpath(&self) -> PathBuf {
-        self.project.job_dir().join(self.project.jobname())
+        let jobname = self
+            .project
+            .jobname()
+            .unwrap_or_else(|_| "Unknown".to_string());
+        self.project
+            .job_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(jobname)
     }
 }
 
 const SERIES_FILENAME: &str = "results.vtk.series";
 
 impl ResultWriter for VtkWriter {
+    /// Is called at the beginning of analysis. Can be used to setup directories etc.
+    ///
+    /// # Errors
+    /// Returns an error if the initialization fails (e.g. directory creation).
     fn init(&self) -> Result<(), Box<dyn Error>> {
         let dirpath = self.dirpath();
         fs::create_dir_all(&dirpath)?;
@@ -43,6 +54,10 @@ impl ResultWriter for VtkWriter {
         Ok(())
     }
 
+    /// Writes the results of an increment.
+    ///
+    /// # Errors
+    /// Returns an error if the writing fails.
     #[allow(clippy::too_many_lines)]
     fn write_increment(
         &self,
@@ -68,8 +83,11 @@ impl ResultWriter for VtkWriter {
         writeln!(w, "POINTS {num_nodes} float")?;
 
         for &node_id in &mesh.index_to_node_id {
-            let node = &mesh.nodes[&node_id];
-            writeln!(w, "{} {} {}", node.x, node.y, node.z)?;
+            if let Some(node) = mesh.nodes.get(&node_id) {
+                writeln!(w, "{} {} {}", node.x, node.y, node.z)?;
+            } else {
+                writeln!(w, "0.0 0.0 0.0")?;
+            }
         }
 
         // --- CELLS (Elements) ---
@@ -80,13 +98,16 @@ impl ResultWriter for VtkWriter {
         for elem in mesh.elements.values() {
             match elem {
                 Element::C3D4(_, nodes) => {
-                    let idx0 = mesh.get_index_for_node_id(nodes[0]).unwrap();
-                    let idx1 = mesh.get_index_for_node_id(nodes[1]).unwrap();
-                    let idx2 = mesh.get_index_for_node_id(nodes[2]).unwrap();
-                    let idx3 = mesh.get_index_for_node_id(nodes[3]).unwrap();
-                    cell_data.push(format!("4 {idx0} {idx1} {idx2} {idx3}"));
-                    cell_types.push(10); // VTK_TETRA
-                    list_size += 5;
+                    if let (Some(idx0), Some(idx1), Some(idx2), Some(idx3)) = (
+                        mesh.get_index_for_node_id(nodes[0]),
+                        mesh.get_index_for_node_id(nodes[1]),
+                        mesh.get_index_for_node_id(nodes[2]),
+                        mesh.get_index_for_node_id(nodes[3]),
+                    ) {
+                        cell_data.push(format!("4 {idx0} {idx1} {idx2} {idx3}"));
+                        cell_types.push(10); // VTK_TETRA
+                        list_size += 5;
+                    }
                 }
             }
         }
@@ -228,6 +249,10 @@ impl ResultWriter for VtkWriter {
         Ok(())
     }
 
+    /// Is called at the very end of the analysis. Can be used for cleanup, etc.
+    ///
+    /// # Errors
+    /// Returns an error if the finish operation fails.
     fn finish(&self) -> Result<(), Box<dyn Error>> {
         let series = OpenOptions::new()
             .append(true)

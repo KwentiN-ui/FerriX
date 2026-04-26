@@ -1,4 +1,5 @@
 use crate::solver::amplitude::{Amplitude, TimeSeries};
+use crate::solver::error::{FerrixError, Result};
 use crate::solver::ids::{ElementId, NodeId};
 use crate::solver::increment::IncrementData;
 use crate::solver::inp::InpFile;
@@ -35,6 +36,17 @@ pub enum Keyword {
     NodeFile,
     ElFile,
     Amplitude,
+    Surface,
+    Dload,
+    Dsload,
+    NodePrint,
+    ElPrint,
+    Include,
+    BeamSection,
+    Expansion,
+    ShellSection,
+    Conductivity,
+    SpecificHeat,
 }
 
 pub struct Parser<'a> {
@@ -80,10 +92,10 @@ impl<'a> Parser<'a> {
     ///
     /// # Errors
     /// Returns an error if parsing fails.
-    pub fn parse(mut self) -> Result<Project, String> {
+    pub fn parse(mut self) -> Result<Project> {
         let mut lines = self.input.lines().enumerate().peekable();
         while let Some((line_nr, line_content)) = lines.next() {
-            self.line_nr = line_nr;
+            self.line_nr = line_nr + 1;
 
             if line_content.starts_with('*') {
                 self.parse_keyword(line_content, &mut lines)?;
@@ -96,7 +108,7 @@ impl<'a> Parser<'a> {
             }
 
             if self.current_keyword.is_some() {
-                self.parse_data(line_content);
+                self.parse_data(line_content)?;
             }
         }
 
@@ -118,7 +130,7 @@ impl<'a> Parser<'a> {
         &mut self,
         line: &str,
         lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
         let keyword_str = parts[0]
             .strip_prefix('*')
@@ -155,7 +167,10 @@ impl<'a> Parser<'a> {
                         .iter()
                         .find(|p| p.starts_with("NAME="))
                         .map(|p| p.split('=').nth(1).unwrap_or("").trim().to_string())
-                        .ok_or("Material name not found")?;
+                        .ok_or_else(|| FerrixError::ParseError {
+                            line: self.line_nr,
+                            message: "Material name not found".into(),
+                        })?;
                     self.project.materials.push(Material {
                         name,
                         density: None,
@@ -167,21 +182,25 @@ impl<'a> Parser<'a> {
                         .iter()
                         .find(|p| p.starts_with("ELSET="))
                         .map(|p| p.split('=').nth(1).unwrap_or("").trim().to_string())
-                        .ok_or("Elset not found in *SOLID SECTION")?;
+                        .ok_or_else(|| FerrixError::ParseError {
+                            line: self.line_nr,
+                            message: "Elset not found in *SOLID SECTION".into(),
+                        })?;
                     let material_name = parts
                         .iter()
                         .find(|p| p.starts_with("MATERIAL="))
                         .map(|p| p.split('=').nth(1).unwrap_or("").trim().to_string())
-                        .ok_or("Material not found in *SOLID SECTION")?;
+                        .ok_or_else(|| FerrixError::ParseError {
+                            line: self.line_nr,
+                            message: "Material not found in *SOLID SECTION".into(),
+                        })?;
 
                     let material_index = self
                         .project
                         .materials
                         .iter()
                         .position(|m| m.name == material_name)
-                        .ok_or(format!(
-                            "Material {material_name} not found for *SOLID SECTION"
-                        ))?;
+                        .ok_or(FerrixError::MaterialNotFound(material_name))?;
 
                     if let Some(element_ids) = self.project.mesh.element_sets.get(&elset) {
                         for &element_id in element_ids {
@@ -190,7 +209,7 @@ impl<'a> Parser<'a> {
                                 .insert(element_id, material_index);
                         }
                     } else {
-                        return Err(format!("Elset {elset} not found for *SOLID SECTION"));
+                        return Err(FerrixError::ElsetNotFound(elset));
                     }
                 }
                 Keyword::Step => {
@@ -219,7 +238,11 @@ impl<'a> Parser<'a> {
                                 Some(solver_str) => match *solver_str {
                                     "DIRECT" => SolverType::Direct,
                                     "ITERATIVE" => SolverType::Iterative,
-                                    _ => panic!("Unknown solver type: {solver_str}"),
+                                    _ => {
+                                        return Err(FerrixError::UnknownSolver(
+                                            (*solver_str).to_string(),
+                                        ));
+                                    }
                                 },
                                 None => SolverType::Default,
                             };
@@ -237,10 +260,38 @@ impl<'a> Parser<'a> {
                                     // Increment data was supplied in INP
                                     let args = get_positional_arguments(data_line);
                                     if args.len() >= 4 {
-                                        increment.initial_time_increment = args[0].parse().unwrap();
-                                        increment.time_period = args[1].parse().unwrap();
-                                        increment.min_time_increment = args[2].parse().unwrap();
-                                        increment.max_time_increment = args[3].parse().unwrap();
+                                        increment.initial_time_increment = args[0]
+                                            .parse()
+                                            .map_err(|e| FerrixError::ParseError {
+                                                line: self.line_nr,
+                                                message: format!(
+                                                    "Invalid initial time increment: {e}"
+                                                ),
+                                            })?;
+                                        increment.time_period = args[1].parse().map_err(|e| {
+                                            FerrixError::ParseError {
+                                                line: self.line_nr,
+                                                message: format!("Invalid time period: {e}"),
+                                            }
+                                        })?;
+                                        increment.min_time_increment =
+                                            args[2].parse().map_err(|e| {
+                                                FerrixError::ParseError {
+                                                    line: self.line_nr,
+                                                    message: format!(
+                                                        "Invalid min time increment: {e}"
+                                                    ),
+                                                }
+                                            })?;
+                                        increment.max_time_increment =
+                                            args[3].parse().map_err(|e| {
+                                                FerrixError::ParseError {
+                                                    line: self.line_nr,
+                                                    message: format!(
+                                                        "Invalid max time increment: {e}"
+                                                    ),
+                                                }
+                                            })?;
                                     }
                                     lines.next(); // Consume data line
                                 }
@@ -264,9 +315,10 @@ impl<'a> Parser<'a> {
                 }
                 Keyword::Amplitude => {
                     let kwargs = get_keyword_arguments(line);
-                    let name = *kwargs
-                        .get("NAME")
-                        .expect("Amplitude card is missing a `Name=` argument.");
+                    let name = *kwargs.get("NAME").ok_or_else(|| FerrixError::ParseError {
+                        line: self.line_nr,
+                        message: "Amplitude card is missing a Name= argument".into(),
+                    })?;
                     let total_time = match kwargs.get("TIME") {
                         Some(val) => *val == "TOTAL TIME",
                         None => false,
@@ -292,8 +344,13 @@ impl<'a> Parser<'a> {
                             .skip(1)
                             .step_by(2)
                             .map(str::trim)
-                            .map(|num| num.parse().unwrap())
-                            .collect();
+                            .map(|num| {
+                                num.parse().map_err(|e| FerrixError::ParseError {
+                                    line: self.line_nr,
+                                    message: format!("Invalid amplitude value: {e}"),
+                                })
+                            })
+                            .collect::<Result<Vec<f64>>>()?;
 
                         let data = Some(TimeSeries(t, vals));
 
@@ -320,7 +377,7 @@ impl<'a> Parser<'a> {
                     }
                     if let Some((_next_nr, next_line)) = lines.peek() {
                         if !next_line.starts_with('*') {
-                            self.parse_boundary(next_line, amplitude_name);
+                            self.parse_boundary(next_line, amplitude_name)?;
                         }
                     }
                 }
@@ -340,27 +397,30 @@ impl<'a> Parser<'a> {
                         }
 
                         if let Some((_, line_content)) = lines.next() {
-                            self.parse_cload(line_content, amplitude_name);
+                            self.parse_cload(line_content, amplitude_name)?;
                         }
                     }
                 }
                 _ => {}
             }
         } else {
-            self.current_keyword = None;
+            return Err(FerrixError::UnsupportedKeyword {
+                line: self.line_nr,
+                keyword: keyword_str,
+            });
         }
 
         Ok(())
     }
 
-    fn parse_data(&mut self, line: &str) {
+    fn parse_data(&mut self, line: &str) -> Result<()> {
         if let Some(keyword) = self.current_keyword {
             match keyword {
-                Keyword::Node => self.parse_node(line),
-                Keyword::Element => self.parse_element(line),
+                Keyword::Node => self.parse_node(line)?,
+                Keyword::Element => self.parse_element(line)?,
                 Keyword::Nset => self.parse_nset(line),
                 Keyword::Elset => self.parse_elset(line),
-                Keyword::Elastic => self.parse_elastic(line),
+                Keyword::Elastic => self.parse_elastic(line)?,
                 Keyword::NodeFile => {
                     self.project
                         .nodal_output
@@ -374,17 +434,24 @@ impl<'a> Parser<'a> {
                 _ => {}
             }
         }
+        Ok(())
     }
 
-    fn parse_node(&mut self, line: &str) {
+    fn parse_node(&mut self, line: &str) -> Result<()> {
         if let Some(node) = Node::parse_line(line) {
             self.project.mesh.nodes.insert(node.id, node);
+        } else {
+            return Err(FerrixError::ParseError {
+                line: self.line_nr,
+                message: format!("Invalid node definition: {line}"),
+            });
         }
+        Ok(())
     }
 
-    fn parse_element(&mut self, line: &str) {
+    fn parse_element(&mut self, line: &str) -> Result<()> {
         if let Some(elem_type) = &self.element_type {
-            let elem = Element::parse_line(elem_type, line);
+            let elem = Element::parse_line(elem_type, line)?;
             let elem_id = elem.get_id();
             if let Some(elset_name) = &self.elset_name {
                 if !elset_name.is_empty() {
@@ -398,6 +465,7 @@ impl<'a> Parser<'a> {
             }
             self.project.mesh.elements.insert(elem_id, elem);
         }
+        Ok(())
     }
 
     fn parse_nset(&mut self, line: &str) {
@@ -461,24 +529,42 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_elastic(&mut self, line: &str) {
+    fn parse_elastic(&mut self, line: &str) -> Result<()> {
         if let Some(material) = self.project.materials.last_mut() {
             let parts: Vec<f64> = line
                 .split(',')
-                .filter_map(|s| s.trim().parse().ok())
-                .collect();
+                .map(|s| {
+                    s.trim().parse().map_err(|e| FerrixError::ParseError {
+                        line: self.line_nr,
+                        message: format!("Invalid elastic constant: {e}"),
+                    })
+                })
+                .collect::<Result<Vec<f64>>>()?;
             if parts.len() >= 2 {
                 material.elastic = Some((parts[0], parts[1]));
             }
         }
+        Ok(())
     }
 
-    fn parse_cload(&mut self, line: &str, amplitude_name: Option<&str>) {
+    fn parse_cload(&mut self, line: &str, amplitude_name: Option<&str>) -> Result<()> {
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
         if parts.len() >= 3 {
             let target = parts[0];
-            let dof_in: usize = parts[1].trim().parse().unwrap_or(0);
-            let val: f64 = parts[2].trim().parse().unwrap_or(0.0);
+            let dof_in: usize = parts[1]
+                .trim()
+                .parse()
+                .map_err(|e| FerrixError::ParseError {
+                    line: self.line_nr,
+                    message: format!("Invalid DOF: {e}"),
+                })?;
+            let val: f64 = parts[2]
+                .trim()
+                .parse()
+                .map_err(|e| FerrixError::ParseError {
+                    line: self.line_nr,
+                    message: format!("Invalid load value: {e}"),
+                })?;
 
             let resolve_target = |target: &str, mesh: &Mesh| -> Vec<NodeId> {
                 let t = target.trim();
@@ -518,20 +604,40 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+        Ok(())
     }
 
-    fn parse_boundary(&mut self, line: &str, amplitude_name: Option<&str>) {
+    fn parse_boundary(&mut self, line: &str, amplitude_name: Option<&str>) -> Result<()> {
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
         if parts.len() >= 2 {
             let target = parts[0];
-            let first_dof: usize = parts[1].trim().parse().unwrap_or(0);
+            let first_dof: usize =
+                parts[1]
+                    .trim()
+                    .parse()
+                    .map_err(|e| FerrixError::ParseError {
+                        line: self.line_nr,
+                        message: format!("Invalid first DOF: {e}"),
+                    })?;
             let last_dof: usize = if parts.len() > 2 && !parts[2].trim().is_empty() {
-                parts[2].trim().parse().unwrap_or(first_dof)
+                parts[2]
+                    .trim()
+                    .parse()
+                    .map_err(|e| FerrixError::ParseError {
+                        line: self.line_nr,
+                        message: format!("Invalid last DOF: {e}"),
+                    })?
             } else {
                 first_dof
             };
             let val: f64 = if parts.len() > 3 {
-                parts[3].trim().parse().unwrap_or(0.0)
+                parts[3]
+                    .trim()
+                    .parse()
+                    .map_err(|e| FerrixError::ParseError {
+                        line: self.line_nr,
+                        message: format!("Invalid boundary value: {e}"),
+                    })?
             } else {
                 0.0
             };
@@ -576,6 +682,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -596,6 +703,7 @@ fn get_positional_arguments(line: &str) -> Vec<&str> {
 /// - making all text uppercase
 /// - merging lines that belong together (`,` at the end of line)
 /// - removes empty lines
+#[must_use]
 pub fn preprocess_inp(input_file: &str) -> String {
     let preprocessed: String = input_file
         .lines()
@@ -633,7 +741,7 @@ pub fn substitute_ccx_solvers(input_file: &str) -> String {
     ];
     let replaces = &["ITERATIVE", "ITERATIVE", "DIRECT", "DIRECT", "DIRECT"];
 
-    let ac = AhoCorasick::new(patterns).unwrap();
+    let ac = AhoCorasick::new(patterns).expect("Failed to initialize AhoCorasick");
     ac.replace_all(input_file, replaces)
 }
 
@@ -663,14 +771,6 @@ mod tests {
     fn positional_args() {
         let line = "0.1, 1, 1E-05, 0.2";
         let args = get_positional_arguments(line);
-        assert_equal(
-            args,
-            vec![
-                "0.1".to_string(),
-                "1".to_string(),
-                "1E-05".to_string(),
-                "0.2".to_string(),
-            ],
-        );
+        assert_equal(args, vec!["0.1", "1", "1E-05", "0.2"]);
     }
 }

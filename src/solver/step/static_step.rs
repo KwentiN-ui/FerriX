@@ -1,4 +1,5 @@
 use crate::solver::assembler::Assembler;
+use crate::solver::error::{FerrixError, Result};
 use crate::solver::ids::NodeId;
 use crate::solver::increment::IncrementData;
 use crate::solver::io::writer::ResultWriter;
@@ -12,7 +13,6 @@ use crate::solver::step::boundary_conds::{BoundaryCondition, Load};
 use crate::solver::time::SolverTime;
 use sprs::CsMat;
 use std::collections::HashMap;
-use std::error::Error;
 
 #[derive(Debug, Clone)]
 pub struct StaticStep {
@@ -34,7 +34,7 @@ impl StaticStep {
         solution_state: &mut SolutionState,
         writer: &dyn ResultWriter,
         timer: &mut SolverTime,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         println!("--- Step {step_id}: StaticStep ---");
 
         let mut current_time = 0.0;
@@ -47,11 +47,10 @@ impl StaticStep {
         while current_time < self.increment_data.time_period {
             n_inc += 1;
             if n_inc > self.increment_data.max_iterations {
-                return Err(format!(
+                return Err(FerrixError::ConvergenceError(format!(
                     "Maximum increment count of {} exceeded.",
                     self.increment_data.max_iterations,
-                )
-                .into());
+                )));
             }
 
             if current_time + increment_time > self.increment_data.time_period {
@@ -80,7 +79,7 @@ impl StaticStep {
 
                     let mut nodal_displacement = NodalResult::new("U", FieldType::Displacement);
                     let (nodal_stress, nodal_strain) =
-                        Self::calculate_stress_strain(project, &inc_solution_state);
+                        Self::calculate_stress_strain(project, &inc_solution_state)?;
 
                     for (matrix_idx, &node_id) in project.mesh.index_to_node_id.iter().enumerate() {
                         let idx = matrix_idx * 3;
@@ -95,7 +94,9 @@ impl StaticStep {
                     inc_res.nodal_results.push(nodal_stress);
                     inc_res.nodal_results.push(nodal_strain);
 
-                    writer.write_increment(&inc_res, timer)?;
+                    writer.write_increment(&inc_res, timer).map_err(|e| {
+                        FerrixError::GenericIo(std::io::Error::other(e.to_string()))
+                    })?;
 
                     // Save the displacement from this increment to update the step state later
                     last_u_for_step = Some(u_total);
@@ -104,7 +105,9 @@ impl StaticStep {
                     println!("Increment failed: {e}. Retrying with smaller increment.");
                     increment_time /= 2.;
                     if increment_time < self.increment_data.min_time_increment {
-                        return Err("Minimum time increment reached. Convergence failed.".into());
+                        return Err(FerrixError::ConvergenceError(
+                            "Minimum time increment reached. Convergence failed.".into(),
+                        ));
                     }
                 }
             }
@@ -124,11 +127,13 @@ impl StaticStep {
         project: &Project,
         timer: &SolverTime,
         is_symmetric: bool,
-    ) -> Result<Vec<f64>, String> {
+    ) -> Result<Vec<f64>> {
         // 1. Setup
         let num_nodes = project.mesh.nodes.len();
         if num_nodes == 0 {
-            return Err("Mesh empty or mappings not initialized".into());
+            return Err(FerrixError::InvalidModelState(
+                "Mesh empty or mappings not initialized".into(),
+            ));
         }
         let num_dofs = num_nodes * 3;
 
@@ -180,7 +185,7 @@ impl StaticStep {
     fn calculate_stress_strain(
         project: &Project,
         solution_state: &SolutionState,
-    ) -> (NodalResult, NodalResult) {
+    ) -> Result<(NodalResult, NodalResult)> {
         let mut nodal_stress = NodalResult::new("S", FieldType::Stress);
         let mut nodal_strain = NodalResult::new("E", FieldType::Strain);
         let mut node_element_count: HashMap<NodeId, usize> = HashMap::new();
@@ -195,7 +200,16 @@ impl StaticStep {
                 }
             }
 
-            let material = &project.materials[project.element_materials[&element.get_id()]];
+            let material_idx = project
+                .element_materials
+                .get(&element.get_id())
+                .ok_or_else(|| {
+                    FerrixError::InvalidModelState(format!(
+                        "Element {} has no material",
+                        element.get_id()
+                    ))
+                })?;
+            let material = &project.materials[*material_idx];
             let d_matrix = material.build_elastic_d_matrix();
 
             let mut avg_stress = [0.0; 6];
@@ -205,7 +219,7 @@ impl StaticStep {
 
             for ip in integration_points {
                 let (strain, stress) =
-                    element.calculate_stress_strain_at_ip(&d_matrix, &u_el, &project.mesh, &ip);
+                    element.calculate_stress_strain_at_ip(&d_matrix, &u_el, &project.mesh, &ip)?;
                 for i in 0..6 {
                     avg_stress[i] += stress[i];
                     avg_strain[i] += strain[i];
@@ -244,6 +258,6 @@ impl StaticStep {
             }
         }
 
-        (nodal_stress, nodal_strain)
+        Ok((nodal_stress, nodal_strain))
     }
 }

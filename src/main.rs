@@ -1,3 +1,4 @@
+#![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 use std::sync::Arc;
 
 use chrono::{Local, Utc};
@@ -35,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut solution_state = SolutionState::new(num_dofs);
     let writer = args.output_format.get_writer(project.clone());
 
-    writer.init().unwrap();
+    writer.init()?;
 
     for (i, step) in project.steps.iter().enumerate() {
         // Each step needs to call the simulation_time methods internally to advance the time properly!

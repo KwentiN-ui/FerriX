@@ -1,3 +1,4 @@
+use crate::solver::error::Result;
 use crate::solver::preconditioner::Preconditioner;
 use sprs::CsMat;
 
@@ -23,8 +24,7 @@ pub trait Solver {
     /// # Returns
     ///
     /// A `Result` containing the displacement vector `u` if the solution converges,
-    /// or a `String` with an error message otherwise.
-    /// Solves the linear system.
+    /// or a `FerrixError` otherwise.
     ///
     /// # Errors
     /// Returns an error if the solver fails to converge or encounters a numerical issue.
@@ -35,7 +35,7 @@ pub trait Solver {
         preconditioner: Option<&dyn Preconditioner>,
         tol: f64,
         max_iter: usize,
-    ) -> Result<Vec<f64>, String>;
+    ) -> Result<Vec<f64>>;
 }
 
 #[derive(Debug, Clone)]

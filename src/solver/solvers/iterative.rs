@@ -1,4 +1,5 @@
 use super::{Preconditioner, Solver};
+use crate::solver::error::{FerrixError, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use sprs::CsMat;
@@ -14,7 +15,7 @@ impl Solver for IterativeSolver {
         preconditioner: Option<&dyn Preconditioner>,
         tol: f64,
         max_iter: usize,
-    ) -> Result<Vec<f64>, String> {
+    ) -> Result<Vec<f64>> {
         let spinner = ProgressBar::new_spinner();
         spinner.enable_steady_tick(Duration::from_millis(100));
         spinner.set_style(ProgressStyle::default_spinner());
@@ -99,7 +100,9 @@ impl Solver for IterativeSolver {
         }
 
         spinner.finish();
-        Err(format!("PCG did not converge after {max_iter} iterations"))
+        Err(FerrixError::ConvergenceError(format!(
+            "PCG did not converge after {max_iter} iterations"
+        )))
     }
 }
 
