@@ -51,6 +51,8 @@ pub struct Parser<'a> {
     bc_id_counter: usize,
     current_step: Option<StaticStep>,
     step_counter: usize,
+    step_loads: Vec<Load>,
+    step_bcs: Vec<BoundaryCondition>,
 }
 
 impl<'a> Parser<'a> {
@@ -69,6 +71,8 @@ impl<'a> Parser<'a> {
             bc_id_counter: 0,
             current_step: None,
             step_counter: 0,
+            step_loads: Vec::new(),
+            step_bcs: Vec::new(),
         }
     }
 
@@ -97,7 +101,9 @@ impl<'a> Parser<'a> {
         }
 
         // Finalize last step if END STEP was missing
-        if let Some(step) = self.current_step.take() {
+        if let Some(mut step) = self.current_step.take() {
+            step.loads.clone_from(&self.step_loads);
+            step.bcs.clone_from(&self.step_bcs);
             self.project.steps.push(Step::StaticStep(step));
         }
 
@@ -188,9 +194,16 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Keyword::Step => {
+                    if self.step_counter == 0 {
+                        // Inherit initial state from project
+                        self.step_loads.clone_from(&self.project.initial_loads);
+                        self.step_bcs.clone_from(&self.project.initial_bcs);
+                    }
                     self.step_counter += 1;
-                    // If a step was already active, push it (though usually *END STEP handles this)
-                    if let Some(step) = self.current_step.take() {
+                    // If a step was already active, push it
+                    if let Some(mut step) = self.current_step.take() {
+                        step.loads.clone_from(&self.step_loads);
+                        step.bcs.clone_from(&self.step_bcs);
                         self.project.steps.push(Step::StaticStep(step));
                     }
 
@@ -243,7 +256,9 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Keyword::EndStep => {
-                    if let Some(step) = self.current_step.take() {
+                    if let Some(mut step) = self.current_step.take() {
+                        step.loads.clone_from(&self.step_loads);
+                        step.bcs.clone_from(&self.step_bcs);
                         self.project.steps.push(Step::StaticStep(step));
                     }
                 }
@@ -296,6 +311,13 @@ impl<'a> Parser<'a> {
                 Keyword::Boundary => {
                     let kwargs = get_keyword_arguments(line);
                     let amplitude_name: Option<&str> = kwargs.get("AMPLITUDE").map(|v| &**v);
+                    if kwargs.get("OP").is_some_and(|&op| op == "NEW") {
+                        if self.current_step.is_some() {
+                            self.step_bcs.clear();
+                        } else {
+                            self.project.initial_bcs.clear();
+                        }
+                    }
                     if let Some((_next_nr, next_line)) = lines.peek() {
                         if !next_line.starts_with('*') {
                             self.parse_boundary(next_line, amplitude_name);
@@ -305,6 +327,13 @@ impl<'a> Parser<'a> {
                 Keyword::Cload => {
                     let kwargs = get_keyword_arguments(line);
                     let amplitude_name: Option<&str> = kwargs.get("AMPLITUDE").map(|v| &**v);
+                    if kwargs.get("OP").is_some_and(|&op| op == "NEW") {
+                        if self.current_step.is_some() {
+                            self.step_loads.clear();
+                        } else {
+                            self.project.initial_loads.clear();
+                        }
+                    }
                     while let Some((_next_nr, next_line)) = lines.peek() {
                         if next_line.starts_with('*') {
                             break;
@@ -480,8 +509,8 @@ impl<'a> Parser<'a> {
                             0
                         },
                     );
-                    if let Some(step) = &mut self.current_step {
-                        step.loads.push(load);
+                    if self.current_step.is_some() {
+                        self.step_loads.push(load);
                     } else {
                         self.project.initial_loads.push(load);
                     }
@@ -537,8 +566,8 @@ impl<'a> Parser<'a> {
                                 0
                             },
                         );
-                        if let Some(step) = &mut self.current_step {
-                            step.bcs.push(bc);
+                        if self.current_step.is_some() {
+                            self.step_bcs.push(bc);
                         } else {
                             self.project.initial_bcs.push(bc);
                         }

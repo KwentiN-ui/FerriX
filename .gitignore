@@ -1,8 +1,6 @@
 /target
-/test_inputs/*.vtk
-/test_inputs/models/*.vtk
-/test_inputs/C3D4_staticstep/*.vtk
-/test_inputs/C3D4_staticstep/*.vtk.series
-/notes.md
+# Solution files
+*.vtk
+*.vtk.series
 # Symbolic Link to the CalculiX Repository for reference
 CalculiX

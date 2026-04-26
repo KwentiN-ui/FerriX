@@ -136,7 +136,7 @@ impl StaticStep {
         let mut f_total = vec![0.0; num_dofs];
 
         // 2. Add loads to F
-        for load in project.initial_loads.iter().chain(self.loads.iter()) {
+        for load in &self.loads {
             if let Some(idx) = project.mesh.get_index_for_node_id(load.node_id()) {
                 let global_dof = idx * 3 + load.dof();
                 if global_dof < num_dofs {
@@ -153,7 +153,7 @@ impl StaticStep {
         // 4. Apply boundary conditions (Penalty Method)
         if max_diag_val > 0.0 {
             let penalty = max_diag_val * 1.0e6;
-            for bc in project.initial_bcs.iter().chain(self.bcs.iter()) {
+            for bc in &self.bcs {
                 if let Some(idx) = project.mesh.get_index_for_node_id(bc.node_id()) {
                     let global_dof = idx * 3 + bc.dof();
                     if global_dof < num_dofs {
