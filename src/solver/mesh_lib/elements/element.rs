@@ -173,6 +173,7 @@ impl Element {
         mesh: &Mesh,
         u_el: &[f64],
         d_mat: &DMatrix<f64>,
+        u_conf: Option<&[f64]>,
     ) -> Result<DVector<f64>> {
         match self {
             Element::C3D4(_, node_ids) => {
@@ -185,9 +186,14 @@ impl Element {
                         .nodes
                         .get(&node_id)
                         .ok_or(FerrixError::NodeNotFound(node_id))?;
-                    node_coords[(0, i)] = coords.x + u_el[i * 3];
-                    node_coords[(1, i)] = coords.y + u_el[i * 3 + 1];
-                    node_coords[(2, i)] = coords.z + u_el[i * 3 + 2];
+
+                    let mut pos = nalgebra::Vector3::new(coords.x, coords.y, coords.z);
+                    if let Some(u) = u_conf {
+                        pos[0] += u[i * 3];
+                        pos[1] += u[i * 3 + 1];
+                        pos[2] += u[i * 3 + 2];
+                    }
+                    node_coords.set_column(i, &pos);
                 }
 
                 for gp in self.integration_points() {

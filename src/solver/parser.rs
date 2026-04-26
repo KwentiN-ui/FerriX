@@ -142,54 +142,60 @@ impl<'a> Parser<'a> {
             self.current_keyword = Some(keyword);
             match keyword {
                 Keyword::Element => {
-                    self.element_type = Element::parse_type_str_from_line(line).ok();
-                    self.elset_name = parts
-                        .iter()
-                        .find(|p| p.starts_with("ELSET="))
-                        .map(|p| p.split('=').nth(1).unwrap_or("").trim().to_string());
+                    let kwargs = get_keyword_arguments(line);
+                    self.element_type = kwargs
+                        .get("TYPE")
+                        .and_then(Option::as_deref)
+                        .map(str::to_string);
+                    self.elset_name = kwargs
+                        .get("ELSET")
+                        .and_then(Option::as_deref)
+                        .map(str::to_string);
                 }
                 Keyword::Nset => {
-                    self.set_name = parts
-                        .iter()
-                        .find(|p| p.starts_with("NSET="))
-                        .map(|p| p.split('=').nth(1).unwrap_or("").trim().to_string());
-                    self.is_generate = parts.iter().any(|p| p.to_uppercase() == "GENERATE");
+                    let kwargs = get_keyword_arguments(line);
+                    self.set_name = kwargs
+                        .get("NSET")
+                        .and_then(Option::as_deref)
+                        .map(str::to_string);
+                    self.is_generate = kwargs.contains_key("GENERATE");
                 }
                 Keyword::Elset => {
-                    self.set_name = parts
-                        .iter()
-                        .find(|p| p.starts_with("ELSET="))
-                        .map(|p| p.split('=').nth(1).unwrap_or("").trim().to_string());
-                    self.is_generate = parts.iter().any(|p| p.to_uppercase() == "GENERATE");
+                    let kwargs = get_keyword_arguments(line);
+                    self.set_name = kwargs
+                        .get("ELSET")
+                        .and_then(Option::as_deref)
+                        .map(str::to_string);
+                    self.is_generate = kwargs.contains_key("GENERATE");
                 }
                 Keyword::Material => {
-                    let name = parts
-                        .iter()
-                        .find(|p| p.starts_with("NAME="))
-                        .map(|p| p.split('=').nth(1).unwrap_or("").trim().to_string())
+                    let kwargs = get_keyword_arguments(line);
+                    let name = kwargs
+                        .get("NAME")
+                        .and_then(Option::as_deref)
                         .ok_or_else(|| FerrixError::ParseError {
                             line: self.line_nr,
                             message: "Material name not found".into(),
                         })?;
                     self.project.materials.push(Material {
-                        name,
+                        name: name.to_string(),
                         density: None,
                         elastic: None,
                     });
                 }
                 Keyword::SolidSection => {
-                    let elset = parts
-                        .iter()
-                        .find(|p| p.starts_with("ELSET="))
-                        .map(|p| p.split('=').nth(1).unwrap_or("").trim().to_string())
-                        .ok_or_else(|| FerrixError::ParseError {
-                            line: self.line_nr,
-                            message: "Elset not found in *SOLID SECTION".into(),
-                        })?;
-                    let material_name = parts
-                        .iter()
-                        .find(|p| p.starts_with("MATERIAL="))
-                        .map(|p| p.split('=').nth(1).unwrap_or("").trim().to_string())
+                    let kwargs = get_keyword_arguments(line);
+                    let elset =
+                        kwargs
+                            .get("ELSET")
+                            .and_then(Option::as_deref)
+                            .ok_or_else(|| FerrixError::ParseError {
+                                line: self.line_nr,
+                                message: "Elset not found in *SOLID SECTION".into(),
+                            })?;
+                    let material_name = kwargs
+                        .get("MATERIAL")
+                        .and_then(Option::as_deref)
                         .ok_or_else(|| FerrixError::ParseError {
                             line: self.line_nr,
                             message: "Material not found in *SOLID SECTION".into(),
@@ -200,16 +206,16 @@ impl<'a> Parser<'a> {
                         .materials
                         .iter()
                         .position(|m| m.name == material_name)
-                        .ok_or(FerrixError::MaterialNotFound(material_name))?;
+                        .ok_or_else(|| FerrixError::MaterialNotFound(material_name.to_string()))?;
 
-                    if let Some(element_ids) = self.project.mesh.element_sets.get(&elset) {
+                    if let Some(element_ids) = self.project.mesh.element_sets.get(elset) {
                         for &element_id in element_ids {
                             self.project
                                 .element_materials
                                 .insert(element_id, material_index);
                         }
                     } else {
-                        return Err(FerrixError::ElsetNotFound(elset));
+                        return Err(FerrixError::ElsetNotFound(elset.to_string()));
                     }
                 }
                 Keyword::Step => {
@@ -231,19 +237,21 @@ impl<'a> Parser<'a> {
 
                     let max_iterations: usize = step_args
                         .get("INC")
+                        .and_then(Option::as_deref)
                         .and_then(|s| s.parse().ok())
                         .unwrap_or(10000);
 
                     if let Some((_next_nr, next_line)) = lines.peek() {
                         if next_line.starts_with("*STATIC") {
                             let step_kwargs = get_keyword_arguments(next_line);
-                            let solver = match step_kwargs.get("SOLVER") {
-                                Some(solver_str) => match *solver_str {
+                            let solver = match step_kwargs.get("SOLVER").and_then(Option::as_deref)
+                            {
+                                Some(solver_str) => match solver_str {
                                     "DIRECT" => SolverType::Direct,
                                     "ITERATIVE" => SolverType::Iterative,
                                     _ => {
                                         return Err(FerrixError::UnknownSolver(
-                                            (*solver_str).to_string(),
+                                            solver_str.to_string(),
                                         ));
                                     }
                                 },
@@ -319,20 +327,25 @@ impl<'a> Parser<'a> {
                 }
                 Keyword::Amplitude => {
                     let kwargs = get_keyword_arguments(line);
-                    let name = *kwargs.get("NAME").ok_or_else(|| FerrixError::ParseError {
-                        line: self.line_nr,
-                        message: "Amplitude card is missing a Name= argument".into(),
-                    })?;
-                    let total_time = match kwargs.get("TIME") {
-                        Some(val) => *val == "TOTAL TIME",
+                    let name = kwargs
+                        .get("NAME")
+                        .and_then(Option::as_deref)
+                        .ok_or_else(|| FerrixError::ParseError {
+                            line: self.line_nr,
+                            message: "Amplitude card is missing a Name= argument".into(),
+                        })?;
+                    let total_time = match kwargs.get("TIME").and_then(Option::as_deref) {
+                        Some(val) => val == "TOTAL TIME",
                         None => false,
                     };
                     let shift_x: f64 = kwargs
                         .get("SHIFTX")
+                        .and_then(Option::as_deref)
                         .and_then(|val| val.parse().ok())
                         .unwrap_or_default();
                     let shift_y: f64 = kwargs
                         .get("SHIFTY")
+                        .and_then(Option::as_deref)
                         .and_then(|val| val.parse().ok())
                         .unwrap_or_default();
                     if let Some((_next_nr, next_line)) = lines.peek() {
@@ -371,8 +384,12 @@ impl<'a> Parser<'a> {
                 }
                 Keyword::Boundary => {
                     let kwargs = get_keyword_arguments(line);
-                    let amplitude_name: Option<&str> = kwargs.get("AMPLITUDE").map(|v| &**v);
-                    if kwargs.get("OP").is_some_and(|&op| op == "NEW") {
+                    let amplitude_name = kwargs.get("AMPLITUDE").and_then(Option::as_deref);
+                    if kwargs
+                        .get("OP")
+                        .and_then(Option::as_deref)
+                        .is_some_and(|op| op == "NEW")
+                    {
                         if self.current_step.is_some() {
                             self.step_bcs.clear();
                         } else {
@@ -387,8 +404,12 @@ impl<'a> Parser<'a> {
                 }
                 Keyword::Cload => {
                     let kwargs = get_keyword_arguments(line);
-                    let amplitude_name: Option<&str> = kwargs.get("AMPLITUDE").map(|v| &**v);
-                    if kwargs.get("OP").is_some_and(|&op| op == "NEW") {
+                    let amplitude_name = kwargs.get("AMPLITUDE").and_then(Option::as_deref);
+                    if kwargs
+                        .get("OP")
+                        .and_then(Option::as_deref)
+                        .is_some_and(|op| op == "NEW")
+                    {
                         if self.current_step.is_some() {
                             self.step_loads.clear();
                         } else {
@@ -690,10 +711,16 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn get_keyword_arguments(line: &str) -> HashMap<&str, &str> {
+fn get_keyword_arguments(line: &str) -> HashMap<&str, Option<&str>> {
     line.split(',')
-        .filter_map(|s| s.split_once('='))
-        .map(|(k, v)| (k.trim(), v.trim()))
+        .skip(1) // Skip the keyword itself (*STEP, etc)
+        .map(|s| {
+            if let Some((k, v)) = s.split_once('=') {
+                (k.trim(), Some(v.trim()))
+            } else {
+                (s.trim(), None)
+            }
+        })
         .collect()
 }
 
@@ -768,7 +795,7 @@ mod tests {
     fn keyword_args() {
         let line = "*STEP , INC =  100";
         let args = get_keyword_arguments(line);
-        assert!(args["INC"] == "100");
+        assert!(args["INC"] == Some("100"));
     }
 
     #[test]

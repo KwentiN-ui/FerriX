@@ -106,7 +106,11 @@ impl Assembler {
     ///
     /// # Errors
     /// Returns an error if the element internal forces cannot be computed.
-    pub fn assemble_internal_force(project: &Project, u_global: &[f64]) -> Result<Vec<f64>> {
+    pub fn assemble_internal_force(
+        project: &Project,
+        u_global: &[f64],
+        u_conf: Option<&[f64]>,
+    ) -> Result<Vec<f64>> {
         let num_nodes = project.mesh.nodes.len();
         let num_dofs = num_nodes * 3;
         let mut f_int_global = vec![0.0; num_dofs];
@@ -126,15 +130,31 @@ impl Assembler {
 
             let node_ids = element.get_node_ids();
             let mut u_el = Vec::with_capacity(node_ids.len() * 3);
+            let mut u_conf_el = if u_conf.is_some() {
+                Some(Vec::with_capacity(node_ids.len() * 3))
+            } else {
+                None
+            };
+
             for &node_id in node_ids {
                 let global_idx = project
                     .mesh
                     .get_index_for_node_id(node_id)
                     .ok_or(FerrixError::NodeNotFound(node_id))?;
                 u_el.extend_from_slice(&u_global[global_idx * 3..global_idx * 3 + 3]);
+                if let Some(uc_el) = &mut u_conf_el {
+                    if let Some(uc_glob) = u_conf {
+                        uc_el.extend_from_slice(&uc_glob[global_idx * 3..global_idx * 3 + 3]);
+                    }
+                }
             }
 
-            let f_int_el = element.compute_internal_force(&project.mesh, &u_el, &d_matrix)?;
+            let f_int_el = element.compute_internal_force(
+                &project.mesh,
+                &u_el,
+                &d_matrix,
+                u_conf_el.as_deref(),
+            )?;
 
             for (i, _) in node_ids.iter().enumerate() {
                 let global_idx = project

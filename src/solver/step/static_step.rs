@@ -86,7 +86,14 @@ impl StaticStep {
                 }
 
                 // 2. Calculate Internal Forces F_int
-                let f_int = Assembler::assemble_internal_force(project, &u_curr)?;
+                // If NLGEOM is active, internal forces are integrated over the current configuration.
+                // Otherwise (Linear), we integrate over the initial configuration.
+                let u_conf = if self.nlgeom {
+                    Some(u_curr.as_slice())
+                } else {
+                    None
+                };
+                let f_int = Assembler::assemble_internal_force(project, &u_curr, u_conf)?;
 
                 // 3. Calculate Residual R = F_ext - F_int
                 let mut residual = vec![0.0; num_dofs];
