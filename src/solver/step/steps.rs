@@ -15,6 +15,10 @@ pub enum Step {
 }
 
 impl Step {
+    /// Solves the current step.
+    ///
+    /// # Errors
+    /// Returns an error if the step fails to solve.
     pub fn solve(
         &self,
         step_id: usize,

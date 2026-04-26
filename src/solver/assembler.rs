@@ -4,6 +4,10 @@ use sprs::TriMat;
 pub struct Assembler;
 
 impl Assembler {
+    /// Assembles the global stiffness matrix.
+    ///
+    /// # Errors
+    /// Returns an error if the element stiffness matrix cannot be computed.
     pub fn assemble(project: &Project, is_symmetric: bool) -> Result<(TriMat<f64>, f64), String> {
         let num_nodes = project.mesh.nodes.len();
         if num_nodes == 0 {

@@ -8,6 +8,7 @@ use crate::solver::results::{FieldType, IncResult, NodalResult};
 use crate::solver::solvers::SolverType;
 use crate::solver::solvers::{Solver, direct::DirectSolver, iterative::IterativeSolver};
 use crate::solver::state::SolutionState;
+use crate::solver::step::boundary_conds::{BoundaryCondition, Load};
 use crate::solver::time::SolverTime;
 use sprs::CsMat;
 use std::collections::HashMap;
@@ -17,9 +18,15 @@ use std::error::Error;
 pub struct StaticStep {
     pub solver: SolverType,
     pub increment_data: IncrementData,
+    pub loads: Vec<Load>,
+    pub bcs: Vec<BoundaryCondition>,
 }
 
 impl StaticStep {
+    /// Solves the static step.
+    ///
+    /// # Errors
+    /// Returns an error if any of the increments fail to converge.
     pub fn solve(
         &self,
         step_id: usize,
@@ -58,16 +65,15 @@ impl StaticStep {
                 timer.local_time()
             );
 
-            match self.next_increment(project, timer, true) {
-                Ok(u_step_total) => {
+            match self.next_increment(step_id, project, timer, true) {
+                Ok(u_total) => {
                     current_time += increment_time;
 
                     // Create a temporary solution state for this increment's results.
-                    // This state combines the displacement from previous steps with the total for the current step.
+                    // u_total ALREADY contains displacements from previous steps if the stiffness matrix is consistent
+                    // and loads from previous steps are included.
                     let mut inc_solution_state = solution_state.clone();
-                    for (i, val) in u_step_total.iter().enumerate() {
-                        inc_solution_state.displacements[i] += val;
-                    }
+                    inc_solution_state.displacements.clone_from(&u_total);
 
                     // Create and write results for this increment
                     let mut inc_res = IncResult::new(step_id, n_inc, "Static Step", current_time);
@@ -92,7 +98,7 @@ impl StaticStep {
                     writer.write_increment(&inc_res, timer)?;
 
                     // Save the displacement from this increment to update the step state later
-                    last_u_for_step = Some(u_step_total);
+                    last_u_for_step = Some(u_total);
                 }
                 Err(e) => {
                     println!("Increment failed: {e}. Retrying with smaller increment.");
@@ -104,11 +110,9 @@ impl StaticStep {
             }
         }
 
-        // Update the global solution state with the displacement from the last successful increment of this step
+        // Update the global solution state with the total displacement from the last successful increment of this step
         if let Some(final_u) = last_u_for_step {
-            for (i, val) in final_u.iter().enumerate() {
-                solution_state.displacements[i] += val;
-            }
+            solution_state.displacements.clone_from(&final_u);
         }
 
         Ok(())
@@ -116,6 +120,7 @@ impl StaticStep {
 
     fn next_increment(
         &self,
+        step_id: usize,
         project: &Project,
         timer: &SolverTime,
         is_symmetric: bool,
@@ -128,14 +133,14 @@ impl StaticStep {
         let num_dofs = num_nodes * 3;
 
         // Init Force Vector F (for the increment)
-        let mut f_inc = vec![0.0; num_dofs];
+        let mut f_total = vec![0.0; num_dofs];
 
         // 2. Add loads to F
-        for load in &project.loads {
+        for load in project.initial_loads.iter().chain(self.loads.iter()) {
             if let Some(idx) = project.mesh.get_index_for_node_id(load.node_id()) {
                 let global_dof = idx * 3 + load.dof();
                 if global_dof < num_dofs {
-                    f_inc[global_dof] += load.value(timer);
+                    f_total[global_dof] += load.value(timer, step_id);
                 }
             } else {
                 eprintln!("Warning: Load on unknown node {}", load.node_id());
@@ -148,18 +153,18 @@ impl StaticStep {
         // 4. Apply boundary conditions (Penalty Method)
         if max_diag_val > 0.0 {
             let penalty = max_diag_val * 1.0e6;
-            for bc in &project.bcs {
+            for bc in project.initial_bcs.iter().chain(self.bcs.iter()) {
                 if let Some(idx) = project.mesh.get_index_for_node_id(bc.node_id()) {
                     let global_dof = idx * 3 + bc.dof();
                     if global_dof < num_dofs {
                         triplet.add_triplet(global_dof, global_dof, penalty);
-                        f_inc[global_dof] += penalty * bc.value(timer);
+                        f_total[global_dof] += penalty * bc.value(timer, step_id);
                     }
                 }
             }
         }
 
-        // 5. Conversion & Solving for displacement increment
+        // 5. Conversion & Solving for TOTAL displacement
         let k_global: CsMat<f64> = triplet.to_csr();
         let preconditioner = DiagonalPreconditioner::new(&k_global);
         let solver: Box<dyn Solver> = match self.solver {
@@ -167,8 +172,8 @@ impl StaticStep {
             | crate::solver::solvers::SolverType::Direct => Box::new(DirectSolver),
             crate::solver::solvers::SolverType::Iterative => Box::new(IterativeSolver),
         };
-        let delta_u = solver.solve(&k_global, &f_inc, Some(&preconditioner), 1e-8, 10000)?;
-        Ok(delta_u)
+        let u_total = solver.solve(&k_global, &f_total, Some(&preconditioner), 1e-8, 10000)?;
+        Ok(u_total)
     }
 
     #[allow(clippy::cast_precision_loss)]

@@ -6,6 +6,7 @@ use crate::solver::parser::preprocess_inp;
 pub struct InpFile(pub String);
 
 impl InpFile {
+    #[must_use] 
     pub fn new(input: &str) -> Self {
         InpFile(preprocess_inp(input))
     }

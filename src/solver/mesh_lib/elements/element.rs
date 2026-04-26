@@ -17,6 +17,10 @@ pub enum Element {
 }
 
 impl Element {
+    /// Parses the element type from a string.
+    ///
+    /// # Errors
+    /// Returns an error if the element type is not found.
     pub fn parse_type_str_from_line(line: &str) -> Result<String, Box<dyn Error>> {
         Ok(line
             .split(',')
@@ -29,6 +33,11 @@ impl Element {
             .to_string())
     }
 
+    /// Parses an element from a string line.
+    ///
+    /// # Panics
+    /// Panics if the input line is malformed or an unknown element type is encountered.
+    #[must_use]
     pub fn parse_line(type_name: &str, line: &str) -> Self {
         let nums: Vec<usize> = line
             .split(',')
@@ -53,24 +62,28 @@ impl Element {
         }
     }
 
+    #[must_use]
     pub fn get_id(&self) -> ElementId {
         match self {
             Element::C3D4(id, _) => *id,
         }
     }
 
+    #[must_use]
     pub fn get_node_ids(&self) -> &[NodeId] {
         match self {
             Element::C3D4(_, n) => n,
         }
     }
 
+    #[must_use]
     pub fn integration_points(&self) -> Vec<GaussPoint> {
         match self {
             Element::C3D4(..) => c3d4_gauss(),
         }
     }
 
+    #[must_use]
     pub fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (DVector<f64>, DMatrix<f64>) {
         match self {
             Element::C3D4(..) => {
@@ -89,6 +102,10 @@ impl Element {
         }
     }
 
+    /// Computes the element stiffness matrix.
+    ///
+    /// # Errors
+    /// Returns an error if a node is not found in the mesh.
     pub fn compute_stiffness(
         &self,
         project: &Project,
@@ -119,6 +136,11 @@ impl Element {
         }
     }
 
+    /// Calculates stress and strain at the integration point.
+    ///
+    /// # Panics
+    /// Panics if a node is not found in the mesh.
+    #[must_use]
     pub fn calculate_stress_strain_at_ip(
         &self,
         d_mat: &DMatrix<f64>,
@@ -175,6 +197,10 @@ fn shape_func_c3d4_static(xi: f64, eta: f64, zeta: f64) -> SMatrix<f64, 3, 4> {
 }
 
 // Fix: Second const param DOF to avoid { 3 * N }
+/// Computes the generic stiffness matrix.
+///
+/// # Panics
+/// Panics if the Jacobian is singular.
 pub fn compute_generic_stiffness<const N: usize, const DOF: usize>(
     d_mat: &SMatrix<f64, 6, 6>,
     node_coords: &SMatrix<f64, 3, N>,

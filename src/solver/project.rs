@@ -37,10 +37,10 @@ pub struct Project {
     pub materials: Vec<Material>,
     /// A map that links each `ElementId` to its corresponding material's index in the `materials` vector.
     pub element_materials: HashMap<ElementId, usize>,
-    /// A collection of all concentrated loads (`*CLOAD`) defined in the model.
-    pub loads: Vec<Load>,
-    /// A collection of all boundary conditions (`*BOUNDARY`) defined in the model.
-    pub bcs: Vec<BoundaryCondition>,
+    /// A collection of all concentrated loads (*CLOAD) defined before the first step.
+    pub initial_loads: Vec<Load>,
+    /// A collection of all boundary conditions (*BOUNDARY) defined before the first step.
+    pub initial_bcs: Vec<BoundaryCondition>,
     /// Nodal output variables requested by the user (e.g. `U`, `RF`).
     pub nodal_output: Vec<String>,
     /// Element output variables requested by the user (e.g. `S`, `E`).
@@ -50,10 +50,12 @@ pub struct Project {
 }
 
 impl Project {
+    #[must_use]
     pub fn new() -> Self {
         Project::default()
     }
 
+    #[must_use]
     pub fn get_info(&self) -> String {
         let mut info = String::new();
 
@@ -71,6 +73,10 @@ impl Project {
         info
     }
 
+    /// Creates a new Project from a jobname.
+    ///
+    /// # Errors
+    /// Returns an error if the input file cannot be read or parsed.
     pub fn from_jobname(
         jobname_filepath: &str,
         preprocess_output: Option<&String>,
@@ -101,6 +107,10 @@ impl Project {
     }
 
     /// Gets the jobname from a filepath.
+    ///
+    /// # Panics
+    /// Panics if the jobname cannot be inferred.
+    #[must_use]
     pub fn jobname(&self) -> String {
         self.filepath
             .file_stem()
@@ -111,6 +121,10 @@ impl Project {
     }
 
     /// Filepath to the output directory
+    ///
+    /// # Panics
+    /// Panics if the job directory cannot be inferred.
+    #[must_use]
     pub fn job_dir(&self) -> PathBuf {
         self.filepath.parent().expect("Invalid filepath.").into()
     }

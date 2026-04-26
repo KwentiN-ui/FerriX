@@ -24,6 +24,10 @@ pub trait Solver {
     ///
     /// A `Result` containing the displacement vector `u` if the solution converges,
     /// or a `String` with an error message otherwise.
+    /// Solves the linear system.
+    ///
+    /// # Errors
+    /// Returns an error if the solver fails to converge or encounters a numerical issue.
     fn solve(
         &self,
         k_global: &CsMat<f64>,

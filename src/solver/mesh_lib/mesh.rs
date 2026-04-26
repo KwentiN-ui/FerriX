@@ -40,11 +40,13 @@ impl Mesh {
     }
 
     /// Fetches the matrix-index for a given Node-ID (from INP file)
+    #[must_use] 
     pub fn get_index_for_node_id(&self, id: NodeId) -> Option<usize> {
         self.node_id_to_index.get(&id).copied()
     }
 
     /// Counts all elements by their respective type.
+    #[must_use] 
     pub fn count_by_type(&self) -> HashMap<ElementType, u32> {
         let mut elem_count: HashMap<ElementType, u32> = HashMap::new();
         for elem in self.elements.values() {

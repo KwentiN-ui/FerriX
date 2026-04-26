@@ -2,11 +2,8 @@ use std::sync::Arc;
 
 use chrono::{Local, Utc};
 use clap::Parser;
+use ferrix::solver::{io::OutputFormat, project::Project, state::SolutionState, time::SolverTime};
 use rayon::ThreadPoolBuilder;
-
-use crate::solver::{io::OutputFormat, project::Project, state::SolutionState, time::SolverTime};
-
-mod solver;
 
 const DEFAULT_THREADS: usize = 4;
 

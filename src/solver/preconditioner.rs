@@ -31,6 +31,7 @@ pub struct DiagonalPreconditioner {
 
 impl DiagonalPreconditioner {
     /// Creates a new `DiagonalPreconditioner` from the global stiffness matrix.
+    #[must_use] 
     pub fn new(k_global: &CsMat<f64>) -> Self {
         let n = k_global.rows();
         let mut inv_diag = vec![1.0; n]; // Default 1.0 für leere Zeilen

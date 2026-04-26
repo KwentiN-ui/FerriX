@@ -14,6 +14,7 @@ pub struct SolutionState {
 
 impl SolutionState {
     /// Creates a new, empty `SolutionState` for the beginning of an analysis.
+    #[must_use] 
     pub fn new(num_dofs: usize) -> Self {
         Self {
             displacements: vec![0.0; num_dofs],

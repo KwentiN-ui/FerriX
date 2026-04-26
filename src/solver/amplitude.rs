@@ -21,7 +21,8 @@ impl Default for Amplitude {
 }
 
 impl Amplitude {
-    pub fn y(&self, time: &SolverTime) -> f64 {
+    #[must_use]
+    pub fn y(&self, time: &SolverTime, origin_step: usize, current_step: usize) -> f64 {
         match &self.data {
             Some(series) => {
                 if self.total_time {
@@ -31,8 +32,12 @@ impl Amplitude {
                 }
             }
             None => {
-                // apply a ramp local to the step
-                time.local_time() / time.local_max_time()
+                if current_step > origin_step {
+                    1.0
+                } else {
+                    // apply a ramp local to the step
+                    time.local_time() / time.local_max_time()
+                }
             }
         }
     }
@@ -86,14 +91,16 @@ mod tests {
     #[test]
     fn test_exact_match() {
         let data = setup_data();
-        assert_eq!(interpolate(10.0, &data, 0.0, 0.0), 100.0);
+        let result = interpolate(10.0, &data, 0.0, 0.0);
+        assert!((result - 100.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_linear_interpolation() {
         let data = setup_data();
         // Midpoint between 0.0 and 10.0 -> 50.0
-        assert_eq!(interpolate(5.0, &data, 0.0, 0.0), 50.0);
+        let result = interpolate(5.0, &data, 0.0, 0.0);
+        assert!((result - 50.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -101,15 +108,18 @@ mod tests {
         let data = setup_data();
         // t=15 with shift_x=5 corresponds to t_target=10 -> value=100
         // adding shift_y=20 results in 120
-        assert_eq!(interpolate(15.0, &data, 5.0, 20.0), 120.0);
+        let result = interpolate(15.0, &data, 5.0, 20.0);
+        assert!((result - 120.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_clamping() {
         let data = setup_data();
         // Below range
-        assert_eq!(interpolate(-10.0, &data, 0.0, 0.0), 0.0);
+        let result_low = interpolate(-10.0, &data, 0.0, 0.0);
+        assert!((result_low - 0.0).abs() < f64::EPSILON);
         // Above range
-        assert_eq!(interpolate(30.0, &data, 0.0, 0.0), 200.0);
+        let result_high = interpolate(30.0, &data, 0.0, 0.0);
+        assert!((result_high - 200.0).abs() < f64::EPSILON);
     }
 }

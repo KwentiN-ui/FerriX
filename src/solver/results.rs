@@ -21,6 +21,7 @@ pub struct NodalResult {
 }
 
 impl NodalResult {
+    #[must_use] 
     pub fn new(name: &str, field_type: FieldType) -> Self {
         Self {
             name: name.to_string(),
@@ -46,6 +47,7 @@ pub struct IncResult {
 }
 
 impl IncResult {
+    #[must_use] 
     pub fn new(step_id: usize, inc_id: usize, name: &str, time: f64) -> Self {
         Self {
             step_id,

@@ -114,3 +114,23 @@ The current Ferrix implementation handles multiple steps through a loop in `main
 *   **Encapsulate Step Data:** Move `loads` and `bcs` from the global `Project` struct into the `Step` enum/structs, or implement a stateful manager that handles `OP=NEW/MOD`.
 *   **Incremental Force Formulation:** Transition the solver to use an incremental approach ( \Delta u = \Delta F$ or  \Delta u = F_{ext} - F_{int}$) to ensure correct state accumulation across steps.
 *   **Improve Amplitude Logic:** Update `Amplitude` to handle "Step-Relative" vs. "Total-Simulation" time correctly, ensuring loads persist across steps as expected.
+
+---
+
+## 7. Refactoring Progress (Rust Implementation)
+
+The following improvements have been implemented in the Rust version to align more closely with CalculiX's behavior:
+
+1.  **Step-Specific Data Scoping:**
+    *   The `Parser` now distinguishes between global (initial) loads/BCs and step-specific ones.
+    *   `StaticStep` now holds its own collections of `loads` and `bcs`.
+2.  **Correct Displacement Accumulation:**
+    *   The solver now calculates the **total** displacement for each increment/step using the total active force.
+    *   `SolutionState` is updated with the total state at the end of each step, preventing the previous double-counting error.
+3.  **Improved Amplitude and Load Persistence:**
+    *   Introduced `origin_step` tracking for all loads and BCs.
+    *   Updated `Amplitude` logic: Loads without explicit amplitude definitions now stay at their final value (1.0) in subsequent steps instead of re-ramping from zero.
+4.  **Parser Context Awareness:**
+    *   The `Parser` now uses a `step_counter` and tracks the `current_step` context, correctly assigning data to the active step or the global project state.
+
+**Current Status:** The core architecture now supports basic multi-step analysis with correct state accumulation and load persistence, matching the fundamental logic of CalculiX's linear static steps.

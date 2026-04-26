@@ -17,6 +17,7 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
+    #[must_use] 
     pub fn get_writer(&self, project: Arc<Project>) -> Box<dyn ResultWriter> {
         match self {
             OutputFormat::Vtk => Box::new(VtkWriter::new(project)),

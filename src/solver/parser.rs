@@ -49,9 +49,12 @@ pub struct Parser<'a> {
     is_generate: bool,
     load_id_counter: usize,
     bc_id_counter: usize,
+    current_step: Option<StaticStep>,
+    step_counter: usize,
 }
 
 impl<'a> Parser<'a> {
+    #[must_use]
     pub fn new(input: &'a InpFile) -> Self {
         Self {
             input,
@@ -64,9 +67,15 @@ impl<'a> Parser<'a> {
             is_generate: false,
             load_id_counter: 0,
             bc_id_counter: 0,
+            current_step: None,
+            step_counter: 0,
         }
     }
 
+    /// Parses the input file and returns a Project.
+    ///
+    /// # Errors
+    /// Returns an error if parsing fails.
     pub fn parse(mut self) -> Result<Project, String> {
         let mut lines = self.input.lines().enumerate().peekable();
         while let Some((line_nr, line_content)) = lines.next() {
@@ -85,6 +94,11 @@ impl<'a> Parser<'a> {
             if self.current_keyword.is_some() {
                 self.parse_data(line_content);
             }
+        }
+
+        // Finalize last step if END STEP was missing
+        if let Some(step) = self.current_step.take() {
+            self.project.steps.push(Step::StaticStep(step));
         }
 
         // Post-parsing steps, e.g. building node mappings
@@ -174,6 +188,12 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Keyword::Step => {
+                    self.step_counter += 1;
+                    // If a step was already active, push it (though usually *END STEP handles this)
+                    if let Some(step) = self.current_step.take() {
+                        self.project.steps.push(Step::StaticStep(step));
+                    }
+
                     let max_iterations: usize = get_keyword_arguments(line)
                         .get("INC")
                         .and_then(|s| s.parse().ok())
@@ -194,30 +214,37 @@ impl<'a> Parser<'a> {
                             // Consume the *STATIC line
                             lines.next();
 
-                            if let Some((_data_nr, data_line)) = lines.next() {
-                                let mut increment: IncrementData = IncrementData {
-                                    max_iterations,
-                                    ..Default::default()
-                                };
+                            let mut increment: IncrementData = IncrementData {
+                                max_iterations,
+                                ..Default::default()
+                            };
+
+                            if let Some((_data_nr, data_line)) = lines.peek() {
                                 if !data_line.starts_with('*') {
                                     // Increment data was supplied in INP
                                     let args = get_positional_arguments(data_line);
-                                    increment.initial_time_increment = args[0].parse().unwrap();
-                                    increment.time_period = args[1].parse().unwrap();
-                                    increment.min_time_increment = args[2].parse().unwrap();
-                                    increment.max_time_increment = args[3].parse().unwrap();
+                                    if args.len() >= 4 {
+                                        increment.initial_time_increment = args[0].parse().unwrap();
+                                        increment.time_period = args[1].parse().unwrap();
+                                        increment.min_time_increment = args[2].parse().unwrap();
+                                        increment.max_time_increment = args[3].parse().unwrap();
+                                    }
+                                    lines.next(); // Consume data line
                                 }
-
-                                let static_step = StaticStep {
-                                    solver,
-                                    increment_data: increment,
-                                };
-                                self.project.steps.push(Step::StaticStep(static_step));
-                            } else {
-                                // Handle error: no data line after *STATIC
-                                return Err("Expected data line after *STATIC".to_string());
                             }
+
+                            self.current_step = Some(StaticStep {
+                                solver,
+                                increment_data: increment,
+                                loads: Vec::new(),
+                                bcs: Vec::new(),
+                            });
                         }
+                    }
+                }
+                Keyword::EndStep => {
+                    if let Some(step) = self.current_step.take() {
+                        self.project.steps.push(Step::StaticStep(step));
                     }
                 }
                 Keyword::Amplitude => {
@@ -439,7 +466,7 @@ impl<'a> Parser<'a> {
 
             if (1..=3).contains(&dof_in) {
                 for node_id in target_nodes {
-                    self.project.loads.push(Load::new(
+                    let load = Load::new(
                         node_id,
                         dof_in - 1,
                         val,
@@ -447,7 +474,17 @@ impl<'a> Parser<'a> {
                             Some(name) => self.project.amplitudes.get(name).cloned(),
                             None => None,
                         },
-                    ));
+                        if self.current_step.is_some() {
+                            self.step_counter
+                        } else {
+                            0
+                        },
+                    );
+                    if let Some(step) = &mut self.current_step {
+                        step.loads.push(load);
+                    } else {
+                        self.project.initial_loads.push(load);
+                    }
                     self.load_id_counter += 1;
                 }
             }
@@ -486,7 +523,7 @@ impl<'a> Parser<'a> {
             for node_id in target_nodes {
                 for dof_in in first_dof..=last_dof {
                     if (1..=3).contains(&dof_in) {
-                        self.project.bcs.push(BoundaryCondition::new(
+                        let bc = BoundaryCondition::new(
                             node_id,
                             dof_in - 1,
                             val,
@@ -494,7 +531,17 @@ impl<'a> Parser<'a> {
                                 Some(name) => self.project.amplitudes.get(name).cloned(),
                                 None => None,
                             },
-                        ));
+                            if self.current_step.is_some() {
+                                self.step_counter
+                            } else {
+                                0
+                            },
+                        );
+                        if let Some(step) = &mut self.current_step {
+                            step.bcs.push(bc);
+                        } else {
+                            self.project.initial_bcs.push(bc);
+                        }
                         self.bc_id_counter += 1;
                     }
                 }
@@ -543,6 +590,10 @@ pub fn preprocess_inp(input_file: &str) -> String {
 use aho_corasick::AhoCorasick;
 
 /// Maps the common `CalculiX` Solvers to supported `Ferrix` solvers.
+///
+/// # Panics
+/// Panics if the internal `AhoCorasick` engine fails to initialize.
+#[must_use]
 pub fn substitute_ccx_solvers(input_file: &str) -> String {
     let patterns = &[
         "ITERATIVE CHOLESKY",
@@ -576,7 +627,7 @@ mod tests {
     fn keyword_args() {
         let line = "*STEP , INC =  100";
         let args = get_keyword_arguments(line);
-        assert!(args["INC"] == "100".to_string());
+        assert!(args["INC"] == "100");
     }
 
     #[test]

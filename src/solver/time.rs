@@ -8,7 +8,14 @@ pub struct SolverTime {
     local_max: f64,
 }
 
+impl Default for SolverTime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SolverTime {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             global: 0.,
@@ -24,12 +31,15 @@ impl SolverTime {
         self.global += timestep;
         self.local += timestep;
     }
+    #[must_use] 
     pub fn local_time(&self) -> f64 {
         self.local
     }
+    #[must_use] 
     pub fn global_time(&self) -> f64 {
         self.global
     }
+    #[must_use] 
     pub fn local_max_time(&self) -> f64 {
         self.local_max
     }

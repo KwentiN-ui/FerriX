@@ -16,6 +16,7 @@ pub struct VtkWriter {
 }
 
 impl VtkWriter {
+    #[must_use] 
     pub fn new(project: Arc<Project>) -> Self {
         Self { project }
     }
