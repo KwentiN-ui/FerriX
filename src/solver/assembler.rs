@@ -5,8 +5,13 @@
 //! assembles them into the global sparse system.
 
 use crate::solver::error::{FerrixError, Result};
+use crate::solver::ids::ElementId;
 use crate::solver::project::Project;
 use sprs::TriMat;
+use std::collections::HashMap;
+
+/// Type definition for material states mapping elements to their integration point variables.
+pub type MaterialStates = HashMap<ElementId, Vec<Vec<f64>>>;
 
 /// A utility for assembling global matrices and vectors from element contributions.
 pub struct Assembler;
@@ -22,6 +27,8 @@ impl Assembler {
     /// * `is_symmetric` - Whether to assume and enforce matrix symmetry.
     /// * `u_global` - Optional current displacement field (used for non-linear stiffness).
     /// * `t_nodal` - Optional nodal temperatures.
+    /// * `material_states_old` - Optional SDVs at the start of the increment.
+    /// * `dtime` - Time increment.
     ///
     /// # Errors
     /// Returns `FerrixError` if an element has no material or if node mappings are missing.
@@ -30,7 +37,9 @@ impl Assembler {
         is_symmetric: bool,
         u_global: Option<&[f64]>,
         t_nodal: Option<&[f64]>,
-    ) -> Result<(TriMat<f64>, f64)> {
+        material_states_old: Option<&MaterialStates>,
+        dtime: f64,
+    ) -> Result<(TriMat<f64>, f64, MaterialStates)> {
         let num_nodes = project.mesh.nodes.len();
         if num_nodes == 0 {
             return Err(FerrixError::InvalidModelState(
@@ -41,17 +50,15 @@ impl Assembler {
         let num_dofs = num_nodes * 3;
         let mut triplet = TriMat::new((num_dofs, num_dofs));
         let mut max_diag_val: f64 = 0.0;
+        let mut material_states_new = HashMap::new();
 
         for element in project.mesh.elements.values() {
-            let material_index = project
-                .element_materials
-                .get(&element.get_id())
-                .ok_or_else(|| {
-                    FerrixError::InvalidModelState(format!(
-                        "Element {} has no material assigned.",
-                        element.get_id()
-                    ))
-                })?;
+            let elem_id = element.get_id();
+            let material_index = project.element_materials.get(&elem_id).ok_or_else(|| {
+                FerrixError::InvalidModelState(format!(
+                    "Element {elem_id} has no material assigned."
+                ))
+            })?;
             let material = &project.materials[*material_index];
 
             let node_ids = element.get_node_ids();
@@ -69,13 +76,6 @@ impl Assembler {
                 None
             };
 
-            // Use average temperature for the element's D-matrix
-            #[allow(clippy::cast_precision_loss)]
-            let t_avg = node_temps
-                .as_ref()
-                .map_or(0.0, |t| t.iter().sum::<f64>() / t.len() as f64);
-            let d_matrix = material.build_elastic_d_matrix(t_avg)?;
-
             // Extract u_el if u_global is provided
             let u_el = if let Some(u_glob) = u_global {
                 let mut u_vec = Vec::with_capacity(node_ids.len() * 3);
@@ -91,9 +91,21 @@ impl Assembler {
                 None
             };
 
-            // Call compute_stiffness with u_el
-            let k_el =
-                element.compute_stiffness(project, &d_matrix, is_symmetric, u_el.as_deref())?;
+            let elem_states_old = material_states_old.and_then(|m| m.get(&elem_id));
+
+            let (k_el, updated_states) = element.compute_stiffness_sdv(
+                project,
+                material.as_ref(),
+                u_el.as_deref(),
+                node_temps.as_deref(),
+                elem_states_old,
+                dtime,
+                is_symmetric,
+            )?;
+
+            if let Some(states) = updated_states {
+                material_states_new.insert(elem_id, states);
+            }
 
             let num_nodes_el = node_ids.len();
 
@@ -134,7 +146,7 @@ impl Assembler {
                 }
             }
         }
-        Ok((triplet, max_diag_val))
+        Ok((triplet, max_diag_val, material_states_new))
     }
 
     /// Assembles the global internal force vector.
@@ -145,22 +157,22 @@ impl Assembler {
         project: &Project,
         u_global: &[f64],
         t_nodal: &[f64],
+        material_states_old: Option<&MaterialStates>,
+        dtime: f64,
         u_conf: Option<&[f64]>,
-    ) -> Result<Vec<f64>> {
+    ) -> Result<(Vec<f64>, MaterialStates)> {
         let num_nodes = project.mesh.nodes.len();
         let num_dofs = num_nodes * 3;
         let mut f_int_global = vec![0.0; num_dofs];
+        let mut material_states_new = HashMap::new();
 
         for element in project.mesh.elements.values() {
-            let material_index = project
-                .element_materials
-                .get(&element.get_id())
-                .ok_or_else(|| {
-                    FerrixError::InvalidModelState(format!(
-                        "Element {} has no material assigned.",
-                        element.get_id()
-                    ))
-                })?;
+            let elem_id = element.get_id();
+            let material_index = project.element_materials.get(&elem_id).ok_or_else(|| {
+                FerrixError::InvalidModelState(format!(
+                    "Element {elem_id} has no material assigned."
+                ))
+            })?;
             let material = &project.materials[*material_index];
 
             let node_ids = element.get_node_ids();
@@ -193,13 +205,21 @@ impl Assembler {
                 }
             }
 
-            let f_int_el = element.compute_internal_force(
+            let elem_states_old = material_states_old.and_then(|m| m.get(&elem_id));
+
+            let (f_int_el, updated_states) = element.compute_internal_force_sdv(
                 &project.mesh,
                 material.as_ref(),
                 &u_el,
                 &node_temps,
+                elem_states_old,
+                dtime,
                 u_conf_el.as_deref(),
             )?;
+
+            if let Some(states) = updated_states {
+                material_states_new.insert(elem_id, states);
+            }
 
             for (i, _) in node_ids.iter().enumerate() {
                 let global_idx = project
@@ -212,7 +232,7 @@ impl Assembler {
             }
         }
 
-        Ok(f_int_global)
+        Ok((f_int_global, material_states_new))
     }
 
     /// Assembles the global thermal force vector.

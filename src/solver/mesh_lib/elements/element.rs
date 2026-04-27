@@ -132,7 +132,7 @@ impl Element {
         &self,
         project: &Project,
         d_mat: &DMatrix<f64>,
-        is_symmetric: bool,
+        _is_symmetric: bool,
         u_el: Option<&[f64]>,
     ) -> Result<DMatrix<f64>> {
         let d_static = SMatrix::<f64, 6, 6>::from_column_slice(d_mat.as_slice());
@@ -161,10 +161,98 @@ impl Element {
                     &coords,
                     &self.integration_points(),
                     shape_func_c3d4_static,
-                    is_symmetric,
+                    true, // Parity check uses symmetric by default
                 )?;
 
                 Ok(DMatrix::from_row_slice(12, 12, k_static.as_slice()))
+            }
+        }
+    }
+
+    /// Computes element stiffness and updated SDVs.
+    ///
+    /// # Errors
+    /// Returns `FerrixError` if numerical errors occur or material update fails.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    pub fn compute_stiffness_sdv(
+        &self,
+        project: &Project,
+        material: &dyn Material,
+        u_el: Option<&[f64]>,
+        node_temps: Option<&[f64]>,
+        material_states_old: Option<&Vec<Vec<f64>>>,
+        dtime: f64,
+        _is_symmetric: bool,
+    ) -> Result<(DMatrix<f64>, Option<Vec<Vec<f64>>>)> {
+        match self {
+            Element::C3D4(_, node_ids) => {
+                let num_nodes = node_ids.len();
+                let num_dofs = num_nodes * 3;
+                let mut k_el = DMatrix::<f64>::zeros(num_dofs, num_dofs);
+                let mut updated_states = Vec::new();
+
+                let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
+                for (i, &node_id) in node_ids.iter().enumerate() {
+                    let coords = project
+                        .mesh
+                        .nodes
+                        .get(&node_id)
+                        .ok_or(FerrixError::NodeNotFound(node_id))?;
+
+                    let mut pos = nalgebra::Vector3::new(coords.x, coords.y, coords.z);
+                    if let Some(u) = u_el {
+                        pos[0] += u[i * 3];
+                        pos[1] += u[i * 3 + 1];
+                        pos[2] += u[i * 3 + 2];
+                    }
+                    node_coords.set_column(i, &pos);
+                }
+
+                let empty_vec = Vec::new();
+
+                for (ip_idx, gp) in self.integration_points().iter().enumerate() {
+                    let (n_local, dn_local) =
+                        self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+                    let jacobian = &dn_local * node_coords.transpose();
+                    let det_j = jacobian.determinant();
+                    let inv_j = jacobian
+                        .try_inverse()
+                        .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+                    let dn_global = inv_j * dn_local;
+                    let weight = det_j.abs() * gp.weight;
+
+                    let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
+
+                    let t_ip = node_temps.map_or(0.0, |temps| {
+                        let mut t = 0.0;
+                        for i in 0..num_nodes {
+                            t += n_local[i] * temps[i];
+                        }
+                        t
+                    });
+
+                    let u_el_vec =
+                        u_el.map_or(DVector::zeros(num_dofs), DVector::from_column_slice);
+                    let mut strain = &b_mat * u_el_vec;
+
+                    if let Some(alpha) = material.thermal_expansion(t_ip) {
+                        let t_ref = material.reference_temperature();
+                        let delta_t = t_ip - t_ref;
+                        strain[0] -= alpha * delta_t;
+                        strain[1] -= alpha * delta_t;
+                        strain[2] -= alpha * delta_t;
+                    }
+
+                    let state_old = material_states_old.map_or(&empty_vec, |m| &m[ip_idx]);
+                    let (d_tangent, _stress, state_new) =
+                        material.update_state(t_ip, &strain, state_old, dtime)?;
+                    updated_states.push(state_new);
+
+                    k_el.add_assign(&(b_mat.transpose() * d_tangent * b_mat * weight));
+                }
+
+                let has_sdvs = material.num_state_variables() > 0;
+                Ok((k_el, if has_sdvs { Some(updated_states) } else { None }))
             }
         }
     }
@@ -181,10 +269,32 @@ impl Element {
         node_temps: &[f64],
         u_conf: Option<&[f64]>,
     ) -> Result<DVector<f64>> {
+        // Just call the SDV version with None for old states
+        let (f_int, _) =
+            self.compute_internal_force_sdv(mesh, material, u_el, node_temps, None, 0.0, u_conf)?;
+        Ok(f_int)
+    }
+
+    /// Computes internal force and updated SDVs.
+    ///
+    /// # Errors
+    /// Returns `FerrixError` if numerical errors occur or material update fails.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    pub fn compute_internal_force_sdv(
+        &self,
+        mesh: &Mesh,
+        material: &dyn Material,
+        u_el: &[f64],
+        node_temps: &[f64],
+        material_states_old: Option<&Vec<Vec<f64>>>,
+        dtime: f64,
+        u_conf: Option<&[f64]>,
+    ) -> Result<(DVector<f64>, Option<Vec<Vec<f64>>>)> {
         match self {
             Element::C3D4(_, node_ids) => {
                 let num_nodes = node_ids.len();
                 let mut f_int = DVector::<f64>::zeros(num_nodes * 3);
+                let mut updated_states = Vec::new();
 
                 let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
                 for (i, &node_id) in node_ids.iter().enumerate() {
@@ -202,7 +312,9 @@ impl Element {
                     node_coords.set_column(i, &pos);
                 }
 
-                for gp in self.integration_points() {
+                let empty_vec = Vec::new();
+
+                for (ip_idx, gp) in self.integration_points().iter().enumerate() {
                     let (n_local, dn_local) =
                         self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
                     let jacobian = &dn_local * node_coords.transpose();
@@ -221,8 +333,6 @@ impl Element {
                         t_ip += n_local[i] * node_temps[i];
                     }
 
-                    let d_mat = material.build_elastic_d_matrix(t_ip)?;
-
                     let u_el_vec = DVector::from_column_slice(u_el);
                     let mut strain = &b_mat * u_el_vec;
 
@@ -235,12 +345,16 @@ impl Element {
                         strain[2] -= alpha * delta_t;
                     }
 
-                    let stress = d_mat * &strain;
+                    let state_old = material_states_old.map_or(&empty_vec, |m| &m[ip_idx]);
+                    let (_d_tangent, stress, state_new) =
+                        material.update_state(t_ip, &strain, state_old, dtime)?;
+                    updated_states.push(state_new);
 
                     f_int.add_assign(&(b_mat.transpose() * stress * weight));
                 }
 
-                Ok(f_int)
+                let has_sdvs = material.num_state_variables() > 0;
+                Ok((f_int, if has_sdvs { Some(updated_states) } else { None }))
             }
         }
     }

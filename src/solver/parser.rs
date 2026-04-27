@@ -55,6 +55,7 @@ pub enum Keyword {
     Conductivity,
     SpecificHeat,
     InitialConditions,
+    Depvar,
 }
 
 /// The main parser for converting input file text into a `Project` model.
@@ -204,6 +205,7 @@ impl<'a> Parser<'a> {
                         poisson_ratio: None,
                         thermal_expansion: None,
                         reference_temperature: 0.0,
+                        num_depvars: 0,
                     });
                 }
                 Keyword::Expansion => {
@@ -490,6 +492,7 @@ impl<'a> Parser<'a> {
                 Keyword::Density => self.parse_density(line)?,
                 Keyword::Expansion => self.parse_expansion(line)?,
                 Keyword::InitialConditions => self.parse_initial_conditions(line)?,
+                Keyword::Depvar => self.parse_depvar(line)?,
                 Keyword::NodeFile => {
                     self.project
                         .nodal_output
@@ -715,6 +718,20 @@ impl<'a> Parser<'a> {
                         self.project.initial_temperatures.insert(node_id, temp);
                     }
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_depvar(&mut self, line: &str) -> Result<()> {
+        if let Some(material) = self.materials.last_mut() {
+            let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+            if !parts.is_empty() {
+                let n_sdv: usize = parts[0].parse().map_err(|e| FerrixError::ParseError {
+                    line: self.line_nr,
+                    message: format!("Invalid DEPVAR value: {e}"),
+                })?;
+                material.num_depvars = n_sdv;
             }
         }
         Ok(())

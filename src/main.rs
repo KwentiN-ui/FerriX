@@ -40,18 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let num_nodes = project.mesh.nodes.len();
     let num_dofs = num_nodes * 3;
     let mut solution_state = SolutionState::new(num_dofs, num_nodes);
-
-    // Initialize temperatures with default project-wide temperature
-    solution_state
-        .temperatures
-        .fill(project.default_initial_temperature);
-
-    // Apply specific nodal initial temperatures from *INITIAL CONDITIONS
-    for (&node_id, &temp) in &project.initial_temperatures {
-        if let Some(idx) = project.mesh.get_index_for_node_id(node_id) {
-            solution_state.temperatures[idx] = temp;
-        }
-    }
+    solution_state.initialize(&project);
 
     let writer = args.output_format.get_writer(project.clone());
 

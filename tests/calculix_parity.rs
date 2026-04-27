@@ -31,10 +31,8 @@ fn test_calculix_parity_c3d4() {
     let num_nodes = project.mesh.nodes.len();
     let num_dofs = num_nodes * 3;
     let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+    solution_state.initialize(&project);
 
-    solution_state
-        .temperatures
-        .fill(project.default_initial_temperature);
     let mut simulation_time = SolverTime::new();
     let writer = MockWriter;
 
@@ -95,10 +93,8 @@ fn test_calculix_parity_2step() {
     let num_nodes = project.mesh.nodes.len();
     let num_dofs = num_nodes * 3;
     let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+    solution_state.initialize(&project);
 
-    solution_state
-        .temperatures
-        .fill(project.default_initial_temperature);
     let mut simulation_time = SolverTime::new();
     let writer = MockWriter;
 
@@ -193,10 +189,8 @@ fn test_calculix_parity_nlgeom() {
     let num_nodes = project.mesh.nodes.len();
     let num_dofs = num_nodes * 3;
     let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+    solution_state.initialize(&project);
 
-    solution_state
-        .temperatures
-        .fill(project.default_initial_temperature);
     let mut simulation_time = SolverTime::new();
     let writer = MockWriter;
 

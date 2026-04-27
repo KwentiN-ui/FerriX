@@ -64,6 +64,9 @@ impl StaticStep {
         // The displacement at the start of the step
         let mut u_step_start = solution_state.displacements.clone();
 
+        // Start of increment states
+        let mut states_inc_start = solution_state.material_states.clone();
+
         while current_time < self.increment_data.time_period {
             n_inc += 1;
             if n_inc > self.increment_data.max_iterations {
@@ -89,6 +92,9 @@ impl StaticStep {
             let mut u_curr = u_step_start.clone(); // Start iteration with displacement from end of previous increment
             let num_dofs = u_curr.len();
 
+            // material_states_curr will store the SDVs calculated during the iteration
+            let mut material_states_curr = states_inc_start.clone();
+
             for iter in 0..15 {
                 // Max NR iterations
                 // 1. Calculate External Forces F_ext
@@ -100,21 +106,32 @@ impl StaticStep {
                     }
                 }
 
-                // 2. Calculate Internal Forces F_int
-                // If NLGEOM is active, internal forces are integrated over the current configuration.
-                // Otherwise (Linear), we integrate over the initial configuration.
-                // Thermal strain is handled inside compute_internal_force.
+                // Add Thermal Forces
+                let f_th =
+                    Assembler::assemble_thermal_force(project, &solution_state.temperatures)?;
+                for i in 0..num_dofs {
+                    f_ext[i] += f_th[i];
+                }
+
+                // 2. Calculate Internal Forces F_int and Updated States
+                // For non-linear materials, internal forces depend on the current state.
                 let u_conf = if self.nlgeom {
                     Some(u_curr.as_slice())
                 } else {
                     None
                 };
-                let f_int = Assembler::assemble_internal_force(
+
+                // Note: we pass states_inc_start because material laws usually expect
+                // state at start of increment for their update formulas.
+                let (f_int, updated_states) = Assembler::assemble_internal_force(
                     project,
                     &u_curr,
                     &solution_state.temperatures,
+                    Some(&states_inc_start),
+                    increment_time,
                     u_conf,
                 )?;
+                material_states_curr = updated_states;
 
                 // 3. Calculate Residual R = F_ext - F_int
                 let mut residual = vec![0.0; num_dofs];
@@ -123,9 +140,6 @@ impl StaticStep {
                 }
 
                 // 4. Check Convergence
-                // For the convergence check, we only consider DOFs that do not have a boundary condition applied.
-                // Boundary conditions generate reaction forces in F_int, which do not exist in F_ext,
-                // so the residual R = F_ext - F_int will never be zero at those nodes.
                 let mut res_for_check = residual.clone();
                 let mut f_ext_for_check = f_ext.clone();
                 for bc in &self.bcs {
@@ -150,25 +164,21 @@ impl StaticStep {
                 println!("  Iteration {iter}: |R| = {res_norm:.3e}, |R|/|F_ext| = {rel_res:.3e}");
 
                 if rel_res < 1e-3 {
-                    // Convergence tolerance
                     converged = true;
                     break;
                 }
 
                 // 5. Assemble Tangent Stiffness Matrix K
-                // If NLGEOM is active, we use the current displacement to calculate the tangent.
-                // Otherwise we always use the initial state (Linear).
-                let (mut triplet, max_diag_val) = Assembler::assemble(
+                let (mut triplet, max_diag_val, _) = Assembler::assemble(
                     project,
                     true,
                     if self.nlgeom { Some(&u_curr) } else { None },
                     Some(&solution_state.temperatures),
+                    Some(&states_inc_start),
+                    increment_time,
                 )?;
 
-                // 6. Apply Boundary Conditions (Penalty Method) to Tangent Matrix
-                // For NR, we solve K * du = R.
-                // Penalty on K: K_ii += Penalty
-                // Penalty on R: R_i += Penalty * (u_target - u_curr_i)
+                // 6. Apply Boundary Conditions
                 if max_diag_val > 0.0 {
                     let penalty = max_diag_val * 1.0e6;
                     for bc in &self.bcs {
@@ -182,7 +192,7 @@ impl StaticStep {
                     }
                 }
 
-                // 7. Solve for Displacement Increment du
+                // 7. Solve
                 let k_global: CsMat<f64> = triplet.to_csr();
                 let preconditioner = DiagonalPreconditioner::new(&k_global);
                 let solver: Box<dyn Solver> = match self.solver {
@@ -199,11 +209,15 @@ impl StaticStep {
 
             if converged {
                 current_time += increment_time;
-                u_step_start.clone_from(&u_curr); // Update start of next increment
+                u_step_start.clone_from(&u_curr);
+                states_inc_start.clone_from(&material_states_curr); // Commit states for next increment
 
-                // Create and write results for this increment
+                // Create and write results
                 let mut inc_solution_state = solution_state.clone();
                 inc_solution_state.displacements.clone_from(&u_curr);
+                inc_solution_state
+                    .material_states
+                    .clone_from(&material_states_curr);
 
                 let mut inc_res = IncResult::new(step_id, n_inc, "Static Step", current_time);
                 let mut nodal_displacement = NodalResult::new("U", FieldType::Displacement);
@@ -239,6 +253,7 @@ impl StaticStep {
 
         // Update the global solution state
         solution_state.displacements.clone_from(&u_step_start);
+        solution_state.material_states.clone_from(&states_inc_start);
 
         Ok(())
     }
@@ -253,7 +268,10 @@ impl StaticStep {
         let mut nodal_strain = NodalResult::new("E", FieldType::Strain);
         let mut node_element_count: HashMap<NodeId, usize> = HashMap::new();
 
+        let empty_vec = Vec::new();
+
         for element in project.mesh.elements.values() {
+            let elem_id = element.get_id();
             let node_ids = element.get_node_ids();
             let mut u_el = Vec::new();
             let mut t_el = Vec::new();
@@ -265,15 +283,9 @@ impl StaticStep {
                 }
             }
 
-            let material_idx = project
-                .element_materials
-                .get(&element.get_id())
-                .ok_or_else(|| {
-                    FerrixError::InvalidModelState(format!(
-                        "Element {} has no material",
-                        element.get_id()
-                    ))
-                })?;
+            let material_idx = project.element_materials.get(&elem_id).ok_or_else(|| {
+                FerrixError::InvalidModelState(format!("Element {elem_id} has no material"))
+            })?;
             let material = &project.materials[*material_idx];
 
             let t_avg = t_el.iter().sum::<f64>() / t_el.len() as f64;
@@ -284,12 +296,39 @@ impl StaticStep {
             let integration_points = element.integration_points();
             let num_ips = integration_points.len();
 
-            for ip in integration_points {
-                let (strain, stress) =
-                    element.calculate_stress_strain_at_ip(&d_matrix, &u_el, &project.mesh, &ip)?;
+            for (ip_idx, ip) in integration_points.iter().enumerate() {
+                // Calculate mechanical strain
+                let (strain_total, _) =
+                    element.calculate_stress_strain_at_ip(&d_matrix, &u_el, &project.mesh, ip)?;
+
+                let mut strain_mech = strain_total.clone();
+                let (n_local, _) =
+                    element.shape_functions(ip.coords[0], ip.coords[1], ip.coords[2]);
+                let mut t_ip = 0.0;
+                for i in 0..node_ids.len() {
+                    t_ip += n_local[i] * t_el[i];
+                }
+
+                if let Some(alpha) = material.thermal_expansion(t_ip) {
+                    let t_ref = material.reference_temperature();
+                    let delta_t = t_ip - t_ref;
+                    strain_mech[0] -= alpha * delta_t;
+                    strain_mech[1] -= alpha * delta_t;
+                    strain_mech[2] -= alpha * delta_t;
+                }
+
+                // Use update_state to get correct stress for possibly non-linear material
+                let state_old = solution_state
+                    .material_states
+                    .get(&elem_id)
+                    .map_or(&empty_vec, |m| &m[ip_idx]);
+                // We use dtime=0 here for results calculation as it's a post-processing step
+                // (though for some laws it might matter, but usually dtime is only for rate-dependent)
+                let (_, stress, _) = material.update_state(t_ip, &strain_mech, state_old, 0.0)?;
+
                 for i in 0..6 {
                     avg_stress[i] += stress[i];
-                    avg_strain[i] += strain[i];
+                    avg_strain[i] += strain_mech[i];
                 }
             }
 

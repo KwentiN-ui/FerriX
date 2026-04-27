@@ -105,6 +105,38 @@ pub trait Material: std::fmt::Debug + Send + Sync {
         0.0
     }
 
+    /// Returns the number of solution-dependent state variables (SDVs) for this material.
+    fn num_state_variables(&self) -> usize {
+        0
+    }
+
+    /// Updates the state-dependent variables and returns the tangent stiffness and stress.
+    ///
+    /// This is a simplified version of UMAT.
+    /// # Arguments
+    /// * `temp` - Temperature at the integration point.
+    /// * `strain` - Total strain at the end of the increment.
+    /// * `state_old` - State variables at the start of the increment.
+    /// * `dtime` - Time increment.
+    ///
+    /// # Returns
+    /// A tuple of (Tangent Matrix, Stress Vector, Updated State Variables).
+    ///
+    /// # Errors
+    /// Returns `FerrixError` if the update fails.
+    fn update_state(
+        &self,
+        temp: f64,
+        strain: &nalgebra::DVector<f64>,
+        state_old: &[f64],
+        _dtime: f64,
+    ) -> Result<(nalgebra::DMatrix<f64>, nalgebra::DVector<f64>, Vec<f64>)> {
+        // Default implementation for linear material
+        let d_mat = self.build_elastic_d_matrix(temp)?;
+        let stress = &d_mat * strain;
+        Ok((d_mat, stress, state_old.to_vec()))
+    }
+
     /// Builds the elastic constitutive matrix (D-matrix) for the material (6x6 for 3D).
     /// Uses Voigt notation: [xx, yy, zz, xy, yz, zx].
     ///
@@ -150,11 +182,16 @@ pub struct BaseMaterial {
     pub poisson_ratio: Option<TemperatureDependentLUT>,
     pub thermal_expansion: Option<TemperatureDependentLUT>,
     pub reference_temperature: f64,
+    pub num_depvars: usize,
 }
 
 impl Material for BaseMaterial {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn num_state_variables(&self) -> usize {
+        self.num_depvars
     }
 
     fn density(&self, temp: f64) -> Option<f64> {
@@ -213,6 +250,7 @@ mod tests {
             poisson_ratio: Some(nu_lut),
             thermal_expansion: None,
             reference_temperature: 0.0,
+            num_depvars: 0,
         };
 
         assert_eq!(material.youngs_modulus(0.0), Some(210_000.0));
