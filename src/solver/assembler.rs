@@ -1,14 +1,29 @@
+//! Global system assembly logic.
+//!
+//! This module provides the `Assembler`, which iterates over the mesh elements,
+//! computes their local stiffness and internal force contributions, and
+//! assembles them into the global sparse system.
+
 use crate::solver::error::{FerrixError, Result};
 use crate::solver::project::Project;
 use sprs::TriMat;
 
+/// A utility for assembling global matrices and vectors from element contributions.
 pub struct Assembler;
 
 impl Assembler {
-    /// Assembles the global stiffness matrix.
+    /// Assembles the global stiffness matrix (K-matrix).
+    ///
+    /// Iterates through all elements in the project, computes their local stiffness
+    /// matrices based on material properties, and maps them to the global system of equations.
+    ///
+    /// # Arguments
+    /// * `project` - The FEA project containing mesh and materials.
+    /// * `is_symmetric` - Whether to assume and enforce matrix symmetry.
+    /// * `u_global` - Optional current displacement field (used for non-linear stiffness).
     ///
     /// # Errors
-    /// Returns an error if the element stiffness matrix cannot be computed.
+    /// Returns `FerrixError` if an element has no material or if node mappings are missing.
     pub fn assemble(
         project: &Project,
         is_symmetric: bool,

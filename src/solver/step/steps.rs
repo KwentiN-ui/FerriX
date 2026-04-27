@@ -1,3 +1,8 @@
+//! High-level step abstractions.
+//!
+//! This module provides the `Step` enum, which acts as a generic wrapper for
+//! specific analysis types like `StaticStep`.
+
 use crate::solver::error::Result;
 use crate::solver::io::writer::ResultWriter;
 use crate::solver::project::Project;
@@ -6,10 +11,12 @@ use crate::solver::step::static_step::StaticStep;
 use crate::solver::time::SolverTime;
 use strum::{EnumDiscriminants, EnumIter};
 
+/// Supported analysis step types.
 #[derive(Debug, Clone, EnumDiscriminants)]
 #[strum_discriminants(derive(EnumIter))]
 #[strum_discriminants(name(StepKind))]
 pub enum Step {
+    /// A static stress/displacement analysis.
     StaticStep(StaticStep),
 }
 

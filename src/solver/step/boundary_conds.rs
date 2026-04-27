@@ -1,6 +1,11 @@
+//! Load and boundary condition definitions.
+//!
+//! This module defines concentrated loads and displacement boundary conditions
+//! that can be applied to nodes within analysis steps.
+
 use crate::solver::{amplitude::Amplitude, ids::NodeId, time::SolverTime};
 
-/// Represents a concentrated load (*CLOAD)
+/// A concentrated nodal load (*CLOAD).
 #[derive(Debug, Clone)]
 pub struct Load {
     node_id: NodeId,
@@ -11,7 +16,8 @@ pub struct Load {
 }
 
 impl Load {
-    #[must_use] 
+    /// Creates a new `Load`.
+    #[must_use]
     pub fn new(
         node_id: NodeId,
         dof: usize,
@@ -27,21 +33,27 @@ impl Load {
             origin_step,
         }
     }
-    #[must_use] 
+
+    /// Returns the ID of the node the load is applied to.
+    #[must_use]
     pub fn node_id(&self) -> NodeId {
         self.node_id
     }
-    #[must_use] 
+
+    /// Returns the degree of freedom (0, 1, or 2) the load is applied to.
+    #[must_use]
     pub fn dof(&self) -> usize {
         self.dof
     }
-    #[must_use] 
+
+    /// Calculates the instantaneous value of the load at a given simulation time.
+    #[must_use]
     pub fn value(&self, time: &SolverTime, current_step: usize) -> f64 {
         self.amplitude.y(time, self.origin_step, current_step) * self.value
     }
 }
 
-/// Represents a boundary condition (*BOUNDARY)
+/// A displacement boundary condition (*BOUNDARY).
 #[derive(Debug, Clone)]
 pub struct BoundaryCondition {
     node_id: NodeId,
@@ -52,7 +64,8 @@ pub struct BoundaryCondition {
 }
 
 impl BoundaryCondition {
-    #[must_use] 
+    /// Creates a new `BoundaryCondition`.
+    #[must_use]
     pub fn new(
         node_id: NodeId,
         dof: usize,
@@ -68,15 +81,21 @@ impl BoundaryCondition {
             origin_step,
         }
     }
-    #[must_use] 
+
+    /// Returns the ID of the node the boundary condition is applied to.
+    #[must_use]
     pub fn node_id(&self) -> NodeId {
         self.node_id
     }
-    #[must_use] 
+
+    /// Returns the degree of freedom (0, 1, or 2) being constrained.
+    #[must_use]
     pub fn dof(&self) -> usize {
         self.dof
     }
-    #[must_use] 
+
+    /// Calculates the instantaneous target value for the boundary condition.
+    #[must_use]
     pub fn value(&self, time: &SolverTime, current_step: usize) -> f64 {
         self.amplitude.y(time, self.origin_step, current_step) * self.value
     }

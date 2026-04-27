@@ -1,9 +1,18 @@
+//! Direct linear solver.
+//!
+//! Implements a sparse direct solver using the Cholesky decomposition
+//! from the `faer` crate.
+
 use crate::solver::error::{FerrixError, Result};
 use crate::solver::solvers::Solver;
 use faer::Side;
 use faer::prelude::*;
 use faer::sparse::{SparseColMatRef, SymbolicSparseColMatRef};
 
+/// A direct solver using sparse Cholesky factorization.
+///
+/// This solver is generally robust and efficient for small to medium-sized
+/// problems, but memory usage scales more aggressively than iterative solvers.
 pub struct DirectSolver;
 
 impl Solver for DirectSolver {

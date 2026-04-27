@@ -1,3 +1,8 @@
+//! Iterative linear solver.
+//!
+//! Implements the Preconditioned Conjugate Gradient (PCG) method for solving
+//! the global system of equations.
+
 use super::{Preconditioner, Solver};
 use crate::solver::error::{FerrixError, Result};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -5,9 +10,19 @@ use rayon::prelude::*;
 use sprs::CsMat;
 use std::time::Duration;
 
+/// An iterative solver using the Preconditioned Conjugate Gradient (PCG) method.
+///
+/// Iterative solvers are often more memory-efficient than direct solvers for
+/// very large systems, but their performance depends heavily on the
+/// quality of the preconditioner.
 pub struct IterativeSolver;
 
 impl Solver for IterativeSolver {
+    /// Solves the system `K * x = b` using the PCG algorithm.
+    ///
+    /// # Errors
+    /// Returns `FerrixError::ConvergenceError` if the solver fails to reach the
+    /// requested tolerance within `max_iter` iterations.
     fn solve(
         &self,
         k: &CsMat<f64>,

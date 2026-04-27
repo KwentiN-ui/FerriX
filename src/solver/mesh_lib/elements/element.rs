@@ -1,3 +1,8 @@
+//! Base element definitions and generic element logic.
+//!
+//! This module defines the `Element` enum, which encapsulates all supported
+//! finite element types, and providing methods for stiffness and force calculations.
+
 use crate::solver::error::{FerrixError, Result};
 use crate::solver::ids::{ElementId, NodeId};
 use crate::solver::mesh_lib::mesh::Mesh;
@@ -9,18 +14,20 @@ use std::str::FromStr;
 use crate::solver::mesh_lib::elements::c3d4::{c3d4_gauss, shape_func_c3d4};
 use strum_macros::{EnumDiscriminants, EnumString};
 
+/// Supported finite element types.
 #[derive(EnumDiscriminants, Debug, Clone)]
 #[strum_discriminants(derive(Hash, EnumString))]
 #[strum_discriminants(name(ElementType))]
 pub enum Element {
+    /// A 4-node linear tetrahedron (First-order 3D element).
     C3D4(ElementId, [NodeId; 4]),
 }
 
 impl Element {
-    /// Parses the element type from a string.
+    /// Parses the element type name from a keyword line (e.g., `*ELEMENT, TYPE=C3D4`).
     ///
     /// # Errors
-    /// Returns an error if the element type is not found.
+    /// Returns `FerrixError::ParseError` if the line is malformed.
     pub fn parse_type_str_from_line(line: &str) -> Result<String> {
         Ok(line
             .split(',')
@@ -39,10 +46,10 @@ impl Element {
             .to_string())
     }
 
-    /// Parses an element from a string line.
+    /// Parses an element's ID and connectivity from a data line.
     ///
     /// # Errors
-    /// Returns an error if the input line is malformed or an unknown element type is encountered.
+    /// Returns an error if the input line is malformed or the element type is unknown.
     pub fn parse_line(type_name: &str, line: &str) -> Result<Self> {
         let nums: Vec<usize> = line
             .split(',')
@@ -78,6 +85,7 @@ impl Element {
         }
     }
 
+    /// Returns the unique ID of the element.
     #[must_use]
     pub fn get_id(&self) -> ElementId {
         match self {
@@ -85,6 +93,7 @@ impl Element {
         }
     }
 
+    /// Returns a slice of node IDs that form the element's connectivity.
     #[must_use]
     pub fn get_node_ids(&self) -> &[NodeId] {
         match self {
@@ -92,6 +101,7 @@ impl Element {
         }
     }
 
+    /// Returns the Gauss integration points for this element type.
     #[must_use]
     pub fn integration_points(&self) -> Vec<GaussPoint> {
         match self {
@@ -99,29 +109,24 @@ impl Element {
         }
     }
 
+    /// Computes shape functions (N) and their derivatives (dN) at local coordinates (xi, eta, zeta).
     #[must_use]
     pub fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (DVector<f64>, DMatrix<f64>) {
         match self {
             Element::C3D4(..) => {
-                // Get static shape functions and derivatives
                 let (n, dn) = shape_func_c3d4(xi, eta, zeta);
-
                 (
-                    // Convert SVector to DVector using column-major slice
                     DVector::from_column_slice(n.as_slice()),
-                    // IMPORTANT: Use from_column_slice because nalgebra's internal
-                    // storage for SMatrix is column-major. Using from_row_slice
-                    // would transpose the data and lead to a singular Jacobian.
                     DMatrix::from_column_slice(3, 4, dn.as_slice()),
                 )
             }
         }
     }
 
-    /// Computes the element stiffness matrix.
+    /// Computes the element's local stiffness matrix (`k_el`).
     ///
     /// # Errors
-    /// Returns an error if a node is not found in the mesh or a numerical error occurs.
+    /// Returns an error if a node is missing from the mesh or if the Jacobian is singular.
     pub fn compute_stiffness(
         &self,
         project: &Project,
@@ -150,7 +155,6 @@ impl Element {
                     coords.set_column(i, &pos);
                 }
 
-                // Fix: Pass DOF (12) explicitly as second parameter to avoid const math
                 let k_static = compute_generic_stiffness::<4, 12>(
                     &d_static,
                     &coords,
@@ -164,10 +168,10 @@ impl Element {
         }
     }
 
-    /// Computes the element internal force vector.
+    /// Computes the element's internal force vector.
     ///
     /// # Errors
-    /// Returns an error if a node is not found in the mesh or numerical errors occur.
+    /// Returns an error if node coordinates are missing or if numerical issues arise during integration.
     pub fn compute_internal_force(
         &self,
         mesh: &Mesh,
@@ -207,15 +211,12 @@ impl Element {
                     let dn_global = inv_j * dn_local;
                     let weight = det_j.abs() * gp.weight;
 
-                    // B matrix at this integration point
                     let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
 
-                    // Stress at this integration point: sigma = D * B * u_el
                     let u_el_vec = DVector::from_column_slice(u_el);
                     let strain = &b_mat * u_el_vec;
                     let stress = d_mat * &strain;
 
-                    // Internal force contribution: integral(B^T * sigma * dV)
                     f_int.add_assign(&(b_mat.transpose() * stress * weight));
                 }
 
@@ -224,10 +225,10 @@ impl Element {
         }
     }
 
-    /// Calculates stress and strain at the integration point.
+    /// Calculates stress and strain vectors at a specific integration point.
     ///
     /// # Errors
-    /// Returns an error if a node is not found in the mesh or numerical errors occur.
+    /// Returns an error if numerical errors occur during Jacobian inversion.
     pub fn calculate_stress_strain_at_ip(
         &self,
         d_mat: &DMatrix<f64>,
@@ -256,22 +257,11 @@ impl Element {
         );
 
         let jacobian = &dn_local * node_coords.transpose();
-
-        let det = jacobian.determinant();
-        if det.abs() < 1e-10 {
-            println!("Singular Jacobian det={det}");
-            println!("Node IDs: {node_ids:?}");
-            for id in node_ids {
-                println!("Node {}: {:?}", id, mesh.nodes.get(id));
-            }
-        }
-
         let inv_j = jacobian
             .try_inverse()
             .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
         let dn_global = inv_j * dn_local;
 
-        // Fix: Call internal build_b_matrix
         let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
 
         let u_el_vec = DVector::from_column_slice(u_el);
@@ -287,8 +277,7 @@ fn shape_func_c3d4_static(xi: f64, eta: f64, zeta: f64) -> SMatrix<f64, 3, 4> {
     dn
 }
 
-// Fix: Second const param DOF to avoid { 3 * N }
-/// Computes the generic stiffness matrix.
+/// Generic routine for computing the stiffness matrix for any element type.
 ///
 /// # Errors
 /// Returns an error if the Jacobian is singular.
@@ -352,7 +341,6 @@ fn build_b_block_static<const N: usize>(
     b
 }
 
-// Re-implemented to fix E0425
 fn build_b_matrix_internal(dn_global: &DMatrix<f64>, num_nodes: usize) -> DMatrix<f64> {
     let mut b = DMatrix::<f64>::zeros(6, num_nodes * 3);
     for i in 0..num_nodes {
@@ -373,8 +361,11 @@ fn build_b_matrix_internal(dn_global: &DMatrix<f64>, num_nodes: usize) -> DMatri
     b
 }
 
+/// Represents a single integration point (Gauss point) within an element.
 #[derive(Debug, Clone, Copy)]
 pub struct GaussPoint {
+    /// Local (isoparametric) coordinates of the point.
     pub coords: [f64; 3],
+    /// Integration weight associated with the point.
     pub weight: f64,
 }

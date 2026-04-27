@@ -1,4 +1,8 @@
-//! A trait for preconditioners used in iterative solvers.
+//! Preconditioning for iterative solvers.
+//!
+//! This module defines the `Preconditioner` trait and implementations like the
+//! `DiagonalPreconditioner`, which help accelerate the convergence of
+//! iterative methods like PCG.
 
 use rayon::prelude::*;
 use sprs::CsMat;
@@ -31,7 +35,7 @@ pub struct DiagonalPreconditioner {
 
 impl DiagonalPreconditioner {
     /// Creates a new `DiagonalPreconditioner` from the global stiffness matrix.
-    #[must_use] 
+    #[must_use]
     pub fn new(k_global: &CsMat<f64>) -> Self {
         let n = k_global.rows();
         let mut inv_diag = vec![1.0; n]; // Default 1.0 für leere Zeilen

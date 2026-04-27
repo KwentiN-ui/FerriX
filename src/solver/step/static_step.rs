@@ -1,3 +1,8 @@
+//! Static stress analysis step.
+//!
+//! This module implements the solver for static FEA problems, supporting both
+//! linear and non-linear (NLGEOM) analyses using the Newton-Raphson method.
+
 use crate::solver::assembler::Assembler;
 use crate::solver::error::{FerrixError, Result};
 use crate::solver::ids::NodeId;
@@ -14,20 +19,30 @@ use crate::solver::time::SolverTime;
 use sprs::CsMat;
 use std::collections::HashMap;
 
+/// Configuration and state for a static analysis step.
 #[derive(Debug, Clone)]
 pub struct StaticStep {
+    /// The linear solver strategy to use.
     pub solver: SolverType,
+    /// Time incrementation settings.
     pub increment_data: IncrementData,
+    /// Concentrated loads applied during this step.
     pub loads: Vec<Load>,
+    /// Boundary conditions applied during this step.
     pub bcs: Vec<BoundaryCondition>,
+    /// If true, performs a non-linear analysis considering geometric non-linearity.
     pub nlgeom: bool,
 }
 
 impl StaticStep {
-    /// Solves the static step.
+    /// Executes the static analysis by iterating through increments.
+    ///
+    /// For non-linear analyses, it employs the Newton-Raphson iteration loop
+    /// within each increment to find the equilibrium state.
     ///
     /// # Errors
-    /// Returns an error if any of the increments fail to converge.
+    /// Returns `FerrixError::ConvergenceError` if the solver fails to converge
+    /// within the allowed iterations or if the minimum time increment is reached.
     pub fn solve(
         &self,
         step_id: usize,
@@ -221,6 +236,7 @@ impl StaticStep {
         Ok(())
     }
 
+    /// Computes stress and strain for all nodes by averaging element contributions.
     #[allow(clippy::cast_precision_loss)]
     fn calculate_stress_strain(
         project: &Project,

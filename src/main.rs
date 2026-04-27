@@ -1,4 +1,8 @@
-#![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
+//! `FerriX` CLI
+//!
+//! The main entry point for the `FerriX` FEA solver. This executable handles command-line arguments,
+//! initializes the simulation environment, and executes the solver steps.
+
 use std::sync::Arc;
 
 use chrono::{Local, Utc};
@@ -6,6 +10,7 @@ use clap::Parser;
 use ferrix::solver::{io::OutputFormat, project::Project, state::SolutionState, time::SolverTime};
 use rayon::ThreadPoolBuilder;
 
+/// Default number of threads used for parallel computations.
 const DEFAULT_THREADS: usize = 4;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -65,6 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Command-line arguments for the `FerriX` solver.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
 pub struct Args {
@@ -75,6 +81,7 @@ pub struct Args {
     #[arg(short, long, default_value_t = DEFAULT_THREADS)]
     num_threads: usize,
 
+    /// The format in which results will be saved.
     #[arg(short, long, default_value_t = OutputFormat::Vtk)]
     output_format: OutputFormat,
 

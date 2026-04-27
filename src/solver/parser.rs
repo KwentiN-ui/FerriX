@@ -1,3 +1,8 @@
+//! Input file parsing engine.
+//!
+//! This module implements the parser for Abaqus-style `.inp` files. It converts
+//! the preprocessed text into a structured `Project` containing all FEA data.
+
 use crate::solver::amplitude::{Amplitude, TimeSeries};
 use crate::solver::error::{FerrixError, Result};
 use crate::solver::ids::{ElementId, NodeId};
@@ -16,6 +21,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use strum_macros::EnumString;
 
+/// Recognized keywords (cards) in the `.inp` file format.
 #[derive(Debug, EnumString, PartialEq, Clone, Copy)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum Keyword {
@@ -49,6 +55,7 @@ pub enum Keyword {
     SpecificHeat,
 }
 
+/// The main parser for converting input file text into a `Project` model.
 pub struct Parser<'a> {
     input: &'a InpFile,
     project: Project,
@@ -68,6 +75,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    /// Creates a new `Parser` for the given input file.
     #[must_use]
     pub fn new(input: &'a InpFile) -> Self {
         Self {
@@ -88,10 +96,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses the input file and returns a Project.
+    /// Parses the input file and returns a `Project`.
     ///
     /// # Errors
-    /// Returns an error if parsing fails.
+    /// Returns `FerrixError` if parsing fails due to syntax errors or unsupported features.
     pub fn parse(mut self) -> Result<Project> {
         let mut lines = self.input.lines().enumerate().peekable();
         while let Some((line_nr, line_content)) = lines.next() {

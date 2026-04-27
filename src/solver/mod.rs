@@ -1,4 +1,7 @@
-//! This module contains code related to solving general FEA problems.
+//! Core solver module for Finite Element Analysis.
+//!
+//! This module organizes the various components required to solve FEA problems,
+//! including mesh management, material properties, step definitions, and linear solvers.
 
 pub mod amplitude;
 pub mod assembler;
@@ -13,7 +16,6 @@ pub mod parser;
 pub mod preconditioner;
 pub mod project;
 pub mod results;
-pub mod section;
 pub mod solvers;
 pub mod state;
 pub mod step;

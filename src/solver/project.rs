@@ -1,3 +1,8 @@
+//! FEA project management and central data coordination.
+//!
+//! The `Project` struct in this module acts as the "God Object" or central hub,
+//! aggregating all mesh, material, and step data into a single container.
+
 use crate::solver::error::{FerrixError, Result};
 use crate::solver::{amplitude::Amplitude, ids::ElementId};
 use std::{

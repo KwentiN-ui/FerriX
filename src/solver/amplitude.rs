@@ -1,11 +1,21 @@
+//! Time-dependent amplitude definitions.
+//!
+//! This module handles "Amplitudes," which are used to scale loads or boundary
+//! conditions over time, either linearly (ramp) or via a user-defined time series.
+
 use crate::solver::time::SolverTime;
 
+/// Defines how a value (like a load) scales over simulation time.
 #[derive(Debug, Clone)]
 pub struct Amplitude {
-    /// Defines, if the time-values are defined in reference to the total simulation time (over multiple steps)
+    /// If true, the time-values are relative to total simulation time;
+    /// otherwise, they are relative to the start of the current step.
     pub total_time: bool,
+    /// X-axis shift (time offset) for the amplitude data.
     pub shift_x: f64,
+    /// Y-axis shift (value offset) for the amplitude data.
     pub shift_y: f64,
+    /// Optional piecewise linear time-value pairs.
     pub data: Option<TimeSeries>,
 }
 
@@ -21,6 +31,10 @@ impl Default for Amplitude {
 }
 
 impl Amplitude {
+    /// Calculates the scaling factor for a given simulation time.
+    ///
+    /// If no data series is provided, it defaults to a linear ramp from 0 to 1
+    /// during the step where it was first defined, and remains 1 thereafter.
     #[must_use]
     pub fn y(&self, time: &SolverTime, origin_step: usize, current_step: usize) -> f64 {
         match &self.data {
@@ -43,6 +57,9 @@ impl Amplitude {
     }
 }
 
+/// A collection of time-value pairs used for interpolation.
+///
+/// The first vector contains the time points, and the second contains the corresponding values.
 #[derive(Debug, Clone)]
 pub struct TimeSeries(pub Vec<f64>, pub Vec<f64>);
 

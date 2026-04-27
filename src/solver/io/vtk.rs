@@ -1,3 +1,8 @@
+//! VTK result exporter.
+//!
+//! This module implements the `ResultWriter` trait for the VTK format,
+//! allowing results to be visualized in software like `ParaView`.
+
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -11,11 +16,16 @@ use crate::solver::results::{FieldType, IncResult};
 use crate::solver::time::SolverTime;
 use nalgebra::{Matrix3, SymmetricEigen};
 
+/// A result writer that exports simulation data to VTK files.
+///
+/// It generates unstructured grid (.vtk) files for each increment and a
+/// ParaView-compatible (.vtk.series) file to manage the time steps.
 pub struct VtkWriter {
     project: Arc<Project>,
 }
 
 impl VtkWriter {
+    /// Creates a new `VtkWriter`.
     #[must_use]
     pub fn new(project: Arc<Project>) -> Self {
         Self { project }

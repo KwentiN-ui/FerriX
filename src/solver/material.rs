@@ -1,19 +1,27 @@
+//! Material property definitions.
+//!
+//! This module contains structures for defining physical properties like density
+//! and elasticity, and provides methods for generating material law matrices.
+
 use nalgebra::DMatrix;
 
+/// Defines the physical and mechanical properties of a material.
 #[derive(Debug, Clone)]
 pub struct Material {
+    /// Unique name of the material.
     pub name: String,
+    /// Mass density of the material.
     pub density: Option<f64>,
-    /// E, nu
+    /// Elastic properties: (Young's modulus E, Poisson's ratio nu).
     pub elastic: Option<(f64, f64)>,
 }
 
 impl Material {
-    /// Builds the elastic D matrix for the material (6x6 for 3D).
-    /// Voigt-Notation: xx, yy, zz, xy, yz, zx
+    /// Builds the elastic constitutive matrix (D-matrix) for the material (6x6 for 3D).
+    /// Uses Voigt notation: [xx, yy, zz, xy, yz, zx].
     ///
     /// # Panics
-    /// Panics if the material does not have an elastic definition.
+    /// Panics if the material does not have an elastic definition (`elastic` is `None`).
     #[must_use]
     pub fn build_elastic_d_matrix(&self) -> DMatrix<f64> {
         let (e, nu) = self.elastic.expect("No *ELASTIC Card definition found!");
