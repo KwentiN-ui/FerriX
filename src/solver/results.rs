@@ -16,6 +16,8 @@ pub enum FieldType {
     Stress,
     /// Element strains (E).
     Strain,
+    /// Nodal temperatures (NT).
+    Temperature,
 }
 
 /// Stores result values for a specific field across all relevant nodes.

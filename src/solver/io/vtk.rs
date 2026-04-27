@@ -193,6 +193,23 @@ impl ResultWriter for VtkWriter {
             }
         }
 
+        // --- Temperature ---
+        if let Some(field) = inc_result
+            .nodal_results
+            .iter()
+            .find(|f| f.field_type == FieldType::Temperature)
+        {
+            writeln!(w, "SCALARS NT float 1")?;
+            writeln!(w, "LOOKUP_TABLE default")?;
+            for &node_id in &mesh.index_to_node_id {
+                if let Some(val) = field.data.get(&node_id) {
+                    writeln!(w, "{}", val[0])?;
+                } else {
+                    writeln!(w, "0.0")?;
+                }
+            }
+        }
+
         // --- MISES & TRESCA ---
         let stress_field = inc_result
             .nodal_results

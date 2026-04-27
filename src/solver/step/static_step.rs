@@ -223,6 +223,7 @@ impl StaticStep {
 
                 let mut inc_res = IncResult::new(step_id, n_inc, "Static Step", current_time);
                 let mut nodal_displacement = NodalResult::new("U", FieldType::Displacement);
+                let mut nodal_temperature = NodalResult::new("NT", FieldType::Temperature);
                 let (nodal_stress, nodal_strain) =
                     Self::calculate_stress_strain(project, &inc_solution_state)?;
 
@@ -234,8 +235,13 @@ impl StaticStep {
                         let dz = inc_solution_state.displacements[idx + 2];
                         nodal_displacement.insert(node_id, vec![dx, dy, dz]);
                     }
+                    if matrix_idx < inc_solution_state.temperatures.len() {
+                        nodal_temperature
+                            .insert(node_id, vec![inc_solution_state.temperatures[matrix_idx]]);
+                    }
                 }
                 inc_res.nodal_results.push(nodal_displacement);
+                inc_res.nodal_results.push(nodal_temperature);
                 inc_res.nodal_results.push(nodal_stress);
                 inc_res.nodal_results.push(nodal_strain);
 
