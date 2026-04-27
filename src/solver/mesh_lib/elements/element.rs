@@ -1,6 +1,6 @@
 //! Base element definitions and generic element logic.
 //!
-//! This module defines the `Element` enum, which encapsulates all supported
+//! This module defines the `Element` enum and `FiniteElement` trait, which encapsulates all supported
 //! finite element types, and providing methods for stiffness and force calculations.
 
 use crate::solver::error::{FerrixError, Result};
@@ -8,13 +8,31 @@ use crate::solver::ids::{ElementId, NodeId};
 use crate::solver::material::{ElementMaterialState, Material, MaterialPointState};
 use crate::solver::mesh_lib::mesh::Mesh;
 use crate::solver::project::Project;
-use nalgebra::{DMatrix, DVector, SMatrix};
+use nalgebra::{DMatrix, DVector};
 use std::ops::AddAssign;
 use std::str::FromStr;
 
-use crate::solver::mesh_lib::elements::c3d4::{c3d4_gauss, shape_func_c3d4};
-use crate::solver::mesh_lib::elements::c3d20::{c3d20_gauss, shape_func_c3d20};
+use crate::solver::mesh_lib::elements::c3d4::C3D4;
+use crate::solver::mesh_lib::elements::c3d20::C3D20;
 use strum_macros::{EnumDiscriminants, EnumString};
+
+/// Trait defining the mathematical and topological properties of a finite element.
+pub trait FiniteElement: std::fmt::Debug + Send + Sync {
+    /// Returns the unique ID of the element.
+    fn id(&self) -> ElementId;
+    /// Returns a slice of node IDs that form the element's connectivity.
+    fn nodes(&self) -> &[NodeId];
+    /// Returns the number of nodes in this element.
+    fn num_nodes(&self) -> usize;
+    /// Returns the VTK cell type code for this element.
+    fn vtk_cell_type(&self) -> u8;
+    /// Returns the Gauss integration points for this element type.
+    fn integration_points(&self) -> Vec<GaussPoint>;
+    /// Computes shape functions (N) and their derivatives (dN) at local coordinates (xi, eta, zeta).
+    fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (DVector<f64>, DMatrix<f64>);
+    /// Returns the local coordinates of the nodes.
+    fn node_local_coords(&self) -> Vec<[f64; 3]>;
+}
 
 /// Supported finite element types.
 #[derive(EnumDiscriminants, Debug, Clone)]
@@ -22,12 +40,21 @@ use strum_macros::{EnumDiscriminants, EnumString};
 #[strum_discriminants(name(ElementType))]
 pub enum Element {
     /// A 4-node linear tetrahedron (First-order 3D element).
-    C3D4(ElementId, [NodeId; 4]),
+    C3D4(C3D4),
     /// A 20-node quadratic brick (Second-order 3D element).
-    C3D20(ElementId, [NodeId; 20]),
+    C3D20(C3D20),
 }
 
 impl Element {
+    /// Returns a reference to the inner `FiniteElement` implementation.
+    #[must_use]
+    pub fn inner(&self) -> &dyn FiniteElement {
+        match self {
+            Element::C3D4(e) => e,
+            Element::C3D20(e) => e,
+        }
+    }
+
     /// Parses the element type name from a keyword line (e.g., `*ELEMENT, TYPE=C3D4`).
     ///
     /// # Errors
@@ -84,7 +111,10 @@ impl Element {
                         line: 0,
                         message: "Wrong node count for C3D4".into(),
                     })?;
-                Ok(Element::C3D4(id, nodes_arr))
+                Ok(Element::C3D4(C3D4 {
+                    id,
+                    nodes: nodes_arr,
+                }))
             }
             ElementType::C3D20 => {
                 let nodes_arr: [NodeId; 20] =
@@ -92,7 +122,10 @@ impl Element {
                         line: 0,
                         message: "Wrong node count for C3D20".into(),
                     })?;
-                Ok(Element::C3D20(id, nodes_arr))
+                Ok(Element::C3D20(C3D20 {
+                    id,
+                    nodes: nodes_arr,
+                }))
             }
         }
     }
@@ -100,83 +133,31 @@ impl Element {
     /// Returns the unique ID of the element.
     #[must_use]
     pub fn get_id(&self) -> ElementId {
-        match self {
-            Element::C3D4(id, _) | Element::C3D20(id, _) => *id,
-        }
+        self.inner().id()
     }
 
     /// Returns a slice of node IDs that form the element's connectivity.
     #[must_use]
     pub fn get_node_ids(&self) -> &[NodeId] {
-        match self {
-            Element::C3D4(_, n) => n,
-            Element::C3D20(_, n) => n,
-        }
+        self.inner().nodes()
     }
 
     /// Returns the Gauss integration points for this element type.
     #[must_use]
     pub fn integration_points(&self) -> Vec<GaussPoint> {
-        match self {
-            Element::C3D4(..) => c3d4_gauss(),
-            Element::C3D20(..) => c3d20_gauss(),
-        }
+        self.inner().integration_points()
     }
 
     /// Computes shape functions (N) and their derivatives (dN) at local coordinates (xi, eta, zeta).
     #[must_use]
     pub fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (DVector<f64>, DMatrix<f64>) {
-        match self {
-            Element::C3D4(..) => {
-                let (n, dn) = shape_func_c3d4(xi, eta, zeta);
-                (
-                    DVector::from_column_slice(n.as_slice()),
-                    DMatrix::from_column_slice(3, 4, dn.as_slice()),
-                )
-            }
-            Element::C3D20(..) => {
-                let (n, dn) = shape_func_c3d20(xi, eta, zeta);
-                (
-                    DVector::from_column_slice(n.as_slice()),
-                    DMatrix::from_column_slice(3, 20, dn.as_slice()),
-                )
-            }
-        }
+        self.inner().shape_functions(xi, eta, zeta)
     }
 
     /// Returns the local coordinates of the nodes.
     #[must_use]
     pub fn node_local_coords(&self) -> Vec<[f64; 3]> {
-        match self {
-            Element::C3D4(..) => vec![
-                [0.0, 0.0, 0.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ],
-            Element::C3D20(..) => vec![
-                [-1.0, -1.0, -1.0],
-                [1.0, -1.0, -1.0],
-                [1.0, 1.0, -1.0],
-                [-1.0, 1.0, -1.0],
-                [-1.0, -1.0, 1.0],
-                [1.0, -1.0, 1.0],
-                [1.0, 1.0, 1.0],
-                [-1.0, 1.0, 1.0],
-                [0.0, -1.0, -1.0],
-                [1.0, 0.0, -1.0],
-                [0.0, 1.0, -1.0],
-                [-1.0, 0.0, -1.0],
-                [0.0, -1.0, 1.0],
-                [1.0, 0.0, 1.0],
-                [0.0, 1.0, 1.0],
-                [-1.0, 0.0, 1.0],
-                [-1.0, -1.0, 0.0],
-                [1.0, -1.0, 0.0],
-                [1.0, 1.0, 0.0],
-                [-1.0, 1.0, 0.0],
-            ],
-        }
+        self.inner().node_local_coords()
     }
 
     /// Computes the element's local stiffness matrix (`k_el`).
@@ -189,64 +170,43 @@ impl Element {
         d_mat: &DMatrix<f64>,
         u_el: Option<&[f64]>,
     ) -> Result<DMatrix<f64>> {
-        let d_static = SMatrix::<f64, 6, 6>::from_column_slice(d_mat.as_slice());
+        let node_ids = self.get_node_ids();
+        let num_nodes = node_ids.len();
 
-        match self {
-            Element::C3D4(_, node_ids) => {
-                let mut coords = SMatrix::<f64, 3, 4>::zeros();
-                for (i, &node_id) in node_ids.iter().enumerate() {
-                    let c = project
-                        .mesh
-                        .nodes
-                        .get(&node_id)
-                        .ok_or(FerrixError::NodeNotFound(node_id))?;
+        let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
+        for (i, &node_id) in node_ids.iter().enumerate() {
+            let c = project
+                .mesh
+                .nodes
+                .get(&node_id)
+                .ok_or(FerrixError::NodeNotFound(node_id))?;
 
-                    let mut pos = nalgebra::Vector3::new(c.x, c.y, c.z);
-                    if let Some(u) = u_el {
-                        pos[0] += u[i * 3];
-                        pos[1] += u[i * 3 + 1];
-                        pos[2] += u[i * 3 + 2];
-                    }
-                    coords.set_column(i, &pos);
-                }
-
-                let k_static = compute_generic_stiffness::<4, 12>(
-                    &d_static,
-                    &coords,
-                    &self.integration_points(),
-                    shape_func_c3d4_static,
-                )?;
-
-                Ok(DMatrix::from_row_slice(12, 12, k_static.as_slice()))
+            let mut pos = nalgebra::Vector3::new(c.x, c.y, c.z);
+            if let Some(u) = u_el {
+                pos[0] += u[i * 3];
+                pos[1] += u[i * 3 + 1];
+                pos[2] += u[i * 3 + 2];
             }
-            Element::C3D20(_, node_ids) => {
-                let mut coords = SMatrix::<f64, 3, 20>::zeros();
-                for (i, &node_id) in node_ids.iter().enumerate() {
-                    let c = project
-                        .mesh
-                        .nodes
-                        .get(&node_id)
-                        .ok_or(FerrixError::NodeNotFound(node_id))?;
-
-                    let mut pos = nalgebra::Vector3::new(c.x, c.y, c.z);
-                    if let Some(u) = u_el {
-                        pos[0] += u[i * 3];
-                        pos[1] += u[i * 3 + 1];
-                        pos[2] += u[i * 3 + 2];
-                    }
-                    coords.set_column(i, &pos);
-                }
-
-                let k_static = compute_generic_stiffness::<20, 60>(
-                    &d_static,
-                    &coords,
-                    &self.integration_points(),
-                    shape_func_c3d20_static,
-                )?;
-
-                Ok(DMatrix::from_row_slice(60, 60, k_static.as_slice()))
-            }
+            node_coords.set_column(i, &pos);
         }
+
+        let mut k_el = DMatrix::<f64>::zeros(num_nodes * 3, num_nodes * 3);
+
+        for gp in self.integration_points() {
+            let (_, dn_local) = self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+            let jacobian = &dn_local * node_coords.transpose();
+            let det_j = jacobian.determinant();
+            let inv_j = jacobian
+                .try_inverse()
+                .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+            let dn_global = inv_j * dn_local;
+            let weight = det_j.abs() * gp.weight;
+
+            let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
+            k_el.add_assign(&(b_mat.transpose() * d_mat * b_mat * weight));
+        }
+
+        Ok(k_el)
     }
 
     /// Computes element stiffness and updated SDVs.
@@ -445,7 +405,7 @@ impl Element {
                 t_init += n_local[i] * node_temps_initial[i];
             }
 
-            let _d_mat = material.build_elastic_d_matrix(t_curr)?;
+            let _d_mat_check = material.build_elastic_d_matrix(t_curr)?;
 
             let u_el_vec = DVector::from_column_slice(u_el);
             let mut strain = &b_mat * u_el_vec;
@@ -623,74 +583,6 @@ impl Element {
             ip_coords.coords[2],
         )
     }
-}
-
-fn shape_func_c3d4_static(xi: f64, eta: f64, zeta: f64) -> SMatrix<f64, 3, 4> {
-    let (_, dn) = shape_func_c3d4(xi, eta, zeta);
-    dn
-}
-
-fn shape_func_c3d20_static(xi: f64, eta: f64, zeta: f64) -> SMatrix<f64, 3, 20> {
-    let (_, dn) = shape_func_c3d20(xi, eta, zeta);
-    dn
-}
-
-/// Generic routine for computing the stiffness matrix for any element type.
-///
-/// # Errors
-/// Returns an error if the Jacobian is singular.
-pub fn compute_generic_stiffness<const N: usize, const DOF: usize>(
-    d_mat: &SMatrix<f64, 6, 6>,
-    node_coords: &SMatrix<f64, 3, N>,
-    integration_points: &[GaussPoint],
-    shape_fn_derivatives: fn(f64, f64, f64) -> SMatrix<f64, 3, N>,
-) -> Result<SMatrix<f64, DOF, DOF>> {
-    let mut k_el = SMatrix::<f64, DOF, DOF>::zeros();
-
-    for gp in integration_points {
-        let dn_local = shape_fn_derivatives(gp.coords[0], gp.coords[1], gp.coords[2]);
-        let jacobian = dn_local * node_coords.transpose();
-        let det_j = jacobian.determinant();
-        let inv_j = jacobian
-            .try_inverse()
-            .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
-        let dn_global = inv_j * dn_local;
-        let weight = det_j.abs() * gp.weight;
-
-        for i in 0..N {
-            let bi = build_b_block_static::<N>(&dn_global, i);
-            let bit_d = bi.transpose() * d_mat;
-
-            for j in 0..N {
-                let bj = build_b_block_static::<N>(&dn_global, j);
-                let k_block = (bit_d * bj) * weight;
-
-                k_el.fixed_view_mut::<3, 3>(i * 3, j * 3)
-                    .add_assign(k_block);
-            }
-        }
-    }
-    Ok(k_el)
-}
-
-fn build_b_block_static<const N: usize>(
-    dn_global: &SMatrix<f64, 3, N>,
-    node_idx: usize,
-) -> SMatrix<f64, 6, 3> {
-    let mut b = SMatrix::<f64, 6, 3>::zeros();
-    let dx = dn_global[(0, node_idx)];
-    let dy = dn_global[(1, node_idx)];
-    let dz = dn_global[(2, node_idx)];
-    b[(0, 0)] = dx;
-    b[(1, 1)] = dy;
-    b[(2, 2)] = dz;
-    b[(3, 0)] = dy;
-    b[(3, 1)] = dx;
-    b[(4, 1)] = dz;
-    b[(4, 2)] = dy;
-    b[(5, 0)] = dz;
-    b[(5, 2)] = dx;
-    b
 }
 
 fn build_b_matrix_internal(dn_global: &DMatrix<f64>, num_nodes: usize) -> DMatrix<f64> {

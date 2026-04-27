@@ -107,7 +107,8 @@ impl ResultWriter for VtkWriter {
 
         for elem in mesh.elements.values() {
             match elem {
-                Element::C3D4(_, nodes) => {
+                Element::C3D4(e) => {
+                    let nodes = e.nodes;
                     if let (Some(idx0), Some(idx1), Some(idx2), Some(idx3)) = (
                         mesh.get_index_for_node_id(nodes[0]),
                         mesh.get_index_for_node_id(nodes[1]),
@@ -119,10 +120,11 @@ impl ResultWriter for VtkWriter {
                         list_size += 5;
                     }
                 }
-                Element::C3D20(_, nodes) => {
+                Element::C3D20(e) => {
+                    let nodes = e.nodes;
                     let mut indices = Vec::with_capacity(20);
                     let mut all_found = true;
-                    for &node_id in nodes {
+                    for &node_id in &nodes {
                         if let Some(idx) = mesh.get_index_for_node_id(node_id) {
                             indices.push(idx);
                         } else {

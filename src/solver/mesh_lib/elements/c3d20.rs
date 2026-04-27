@@ -1,12 +1,90 @@
 //! C3D20 element implementation (Quadratic Hexahedron).
 
-use crate::solver::mesh_lib::elements::element::GaussPoint;
-use nalgebra::{SMatrix, SVector};
+use crate::solver::ids::{ElementId, NodeId};
+use crate::solver::mesh_lib::elements::element::{FiniteElement, GaussPoint};
+use nalgebra::{DMatrix, DVector, SMatrix, SVector};
 
 /// Quadratic hexahedron (C3D20).
-///
-/// Computes the shape functions N and their derivatives dN/d(xi, eta, zeta).
-/// Coordinates xi, eta, zeta are in the range [-1, 1].
+#[derive(Debug, Clone)]
+pub struct C3D20 {
+    pub id: ElementId,
+    pub nodes: [NodeId; 20],
+}
+
+impl FiniteElement for C3D20 {
+    fn id(&self) -> ElementId {
+        self.id
+    }
+
+    fn nodes(&self) -> &[NodeId] {
+        &self.nodes
+    }
+
+    fn num_nodes(&self) -> usize {
+        20
+    }
+
+    fn vtk_cell_type(&self) -> u8 {
+        25 // VTK_QUADRATIC_HEXAHEDRON
+    }
+
+    fn integration_points(&self) -> Vec<GaussPoint> {
+        let mut gps = Vec::with_capacity(27);
+        let pts = [-0.774_596_669_241_483, 0.0, 0.774_596_669_241_483];
+        let wts = [
+            0.555_555_555_555_555_6,
+            0.888_888_888_888_888_8,
+            0.555_555_555_555_555_6,
+        ];
+
+        for i in 0..3 {
+            for j in 0..3 {
+                for k in 0..3 {
+                    gps.push(GaussPoint {
+                        coords: [pts[i], pts[j], pts[k]],
+                        weight: wts[i] * wts[j] * wts[k],
+                    });
+                }
+            }
+        }
+        gps
+    }
+
+    fn shape_functions(&self, xi: f64, et: f64, ze: f64) -> (DVector<f64>, DMatrix<f64>) {
+        let (n, dn) = shape_func_c3d20(xi, et, ze);
+        (
+            DVector::from_column_slice(n.as_slice()),
+            DMatrix::from_column_slice(3, 20, dn.as_slice()),
+        )
+    }
+
+    fn node_local_coords(&self) -> Vec<[f64; 3]> {
+        vec![
+            [-1.0, -1.0, -1.0],
+            [1.0, -1.0, -1.0],
+            [1.0, 1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+            [1.0, -1.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [-1.0, 1.0, 1.0],
+            [0.0, -1.0, -1.0],
+            [1.0, 0.0, -1.0],
+            [0.0, 1.0, -1.0],
+            [-1.0, 0.0, -1.0],
+            [0.0, -1.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [-1.0, 0.0, 1.0],
+            [-1.0, -1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [-1.0, 1.0, 0.0],
+        ]
+    }
+}
+
+/// Legacy function for `compute_stiffness_sdv` glue code
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn shape_func_c3d20(xi: f64, et: f64, ze: f64) -> (SVector<f64, 20>, SMatrix<f64, 3, 20>) {
@@ -134,7 +212,7 @@ pub fn shape_func_c3d20(xi: f64, et: f64, ze: f64) -> (SVector<f64, 20>, SMatrix
     (n, dn)
 }
 
-/// Returns the integration points for a C3D20 element (3x3x3 Gauss rule).
+/// Legacy function for `compute_stiffness_sdv` glue code
 #[must_use]
 pub fn c3d20_gauss() -> Vec<GaussPoint> {
     let mut gps = Vec::with_capacity(27);
