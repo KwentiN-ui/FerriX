@@ -270,3 +270,64 @@ fn test_calculix_parity_nlgeom() {
         );
     }
 }
+
+#[test]
+fn test_calculix_parity_c3d20() {
+    let mut project =
+        Project::from_jobname("tests/data/C3D20", None).expect("Failed to parse .inp file");
+
+    project.default_initial_temperature = 20.0;
+
+    let num_nodes = project.mesh.nodes.len();
+    let num_dofs = num_nodes * 3;
+    let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+    solution_state.initialize(&project);
+
+    let mut simulation_time = SolverTime::new();
+    let writer = MockWriter;
+
+    for (i, step) in project.steps.iter().enumerate() {
+        let step_id = i + 1;
+        step.solve(
+            step_id,
+            &project,
+            &mut solution_state,
+            &writer,
+            &mut simulation_time,
+        )
+        .expect("Step failed");
+    }
+
+    // Node 17 Reference from CalculiX .dat file:
+    // 17  5.752112E-02 -2.497816E-04 -8.074951E-03
+    let node_id = NodeId(17);
+    let idx = project
+        .mesh
+        .get_index_for_node_id(node_id)
+        .expect("Node 17 not found");
+
+    let ux = solution_state.displacements[idx * 3];
+    let uy = solution_state.displacements[idx * 3 + 1];
+    let uz = solution_state.displacements[idx * 3 + 2];
+
+    println!("Ferrix results for Node 17 (C3D20): ux={ux:.6e}, uy={uy:.6e}, uz={uz:.6e}");
+
+    let ref_ux = 5.752_112E-02;
+    let ref_uy = -2.497_816E-04;
+    let ref_uz = -8.074_951E-03;
+
+    let tolerance = 1e-6;
+
+    assert!(
+        (ux - ref_ux).abs() < tolerance,
+        "ux mismatch: ferrix={ux}, ref={ref_ux}"
+    );
+    assert!(
+        (uy - ref_uy).abs() < tolerance,
+        "uy mismatch: ferrix={uy}, ref={ref_uy}"
+    );
+    assert!(
+        (uz - ref_uz).abs() < tolerance,
+        "uz mismatch: ferrix={uz}, ref={ref_uz}"
+    );
+}
