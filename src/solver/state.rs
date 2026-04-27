@@ -16,7 +16,9 @@ pub struct SolutionState {
     /// Cumulative nodal displacements at the end of the last completed increment.
     /// This vector is indexed by the global degree of freedom (3 per node).
     pub displacements: Vec<f64>,
-    /// Nodal temperatures. Vector is indexed by node index.
+    /// Nodal temperatures at the start of the analysis (initial state).
+    pub initial_temperatures: Vec<f64>,
+    /// Current nodal temperatures.
     pub temperatures: Vec<f64>,
     /// State-dependent variables (SDVs) for each element at each integration point.
     /// Map: `ElementId` -> Vec<Vec<`SDV_Values`>> (outer Vec is IP, inner Vec is SDVs)
@@ -29,6 +31,7 @@ impl SolutionState {
     pub fn new(num_dofs: usize, num_nodes: usize) -> Self {
         Self {
             displacements: vec![0.0; num_dofs],
+            initial_temperatures: vec![0.0; num_nodes],
             temperatures: vec![0.0; num_nodes],
             material_states: HashMap::new(),
         }
@@ -42,11 +45,14 @@ impl SolutionState {
     /// Panics if an element in the mesh does not have a corresponding material assignment.
     pub fn initialize(&mut self, project: &Project) {
         // Initialize temperatures with default project-wide temperature
+        self.initial_temperatures
+            .fill(project.default_initial_temperature);
         self.temperatures.fill(project.default_initial_temperature);
 
         // Apply specific nodal initial temperatures from *INITIAL CONDITIONS
         for (&node_id, &temp) in &project.initial_temperatures {
             if let Some(idx) = project.mesh.get_index_for_node_id(node_id) {
+                self.initial_temperatures[idx] = temp;
                 self.temperatures[idx] = temp;
             }
         }

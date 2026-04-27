@@ -107,25 +107,26 @@ impl StaticStep {
                 }
 
                 // Add Thermal Forces
-                let f_th =
-                    Assembler::assemble_thermal_force(project, &solution_state.temperatures)?;
+                let f_th = Assembler::assemble_thermal_force(
+                    project,
+                    &solution_state.initial_temperatures,
+                    &solution_state.temperatures,
+                )?;
                 for i in 0..num_dofs {
                     f_ext[i] += f_th[i];
                 }
 
                 // 2. Calculate Internal Forces F_int and Updated States
-                // For non-linear materials, internal forces depend on the current state.
                 let u_conf = if self.nlgeom {
                     Some(u_curr.as_slice())
                 } else {
                     None
                 };
 
-                // Note: we pass states_inc_start because material laws usually expect
-                // state at start of increment for their update formulas.
                 let (f_int, updated_states) = Assembler::assemble_internal_force(
                     project,
                     &u_curr,
+                    &solution_state.initial_temperatures,
                     &solution_state.temperatures,
                     Some(&states_inc_start),
                     increment_time,
@@ -173,6 +174,7 @@ impl StaticStep {
                     project,
                     true,
                     if self.nlgeom { Some(&u_curr) } else { None },
+                    Some(&solution_state.initial_temperatures),
                     Some(&solution_state.temperatures),
                     Some(&states_inc_start),
                     increment_time,
@@ -274,12 +276,14 @@ impl StaticStep {
             let elem_id = element.get_id();
             let node_ids = element.get_node_ids();
             let mut u_el = Vec::new();
-            let mut t_el = Vec::new();
+            let mut t_init_el = Vec::new();
+            let mut t_curr_el = Vec::new();
             for &node_id in node_ids {
                 if let Some(idx) = project.mesh.get_index_for_node_id(node_id) {
                     let dof_start = idx * 3;
                     u_el.extend_from_slice(&solution_state.displacements[dof_start..dof_start + 3]);
-                    t_el.push(solution_state.temperatures[idx]);
+                    t_init_el.push(solution_state.initial_temperatures[idx]);
+                    t_curr_el.push(solution_state.temperatures[idx]);
                 }
             }
 
@@ -288,7 +292,7 @@ impl StaticStep {
             })?;
             let material = &project.materials[*material_idx];
 
-            let t_avg = t_el.iter().sum::<f64>() / t_el.len() as f64;
+            let t_avg = t_curr_el.iter().sum::<f64>() / t_curr_el.len() as f64;
             let d_matrix = material.build_elastic_d_matrix(t_avg)?;
 
             let mut avg_stress = [0.0; 6];
@@ -304,17 +308,25 @@ impl StaticStep {
                 let mut strain_mech = strain_total.clone();
                 let (n_local, _) =
                     element.shape_functions(ip.coords[0], ip.coords[1], ip.coords[2]);
-                let mut t_ip = 0.0;
+                let mut t_curr_ip = 0.0;
+                let mut t_init_ip = 0.0;
                 for i in 0..node_ids.len() {
-                    t_ip += n_local[i] * t_el[i];
+                    t_curr_ip += n_local[i] * t_curr_el[i];
+                    t_init_ip += n_local[i] * t_init_el[i];
                 }
 
-                if let Some(alpha) = material.thermal_expansion(t_ip) {
+                if let Some(alpha_curr) = material.thermal_expansion(t_curr_ip) {
                     let t_ref = material.reference_temperature();
-                    let delta_t = t_ip - t_ref;
-                    strain_mech[0] -= alpha * delta_t;
-                    strain_mech[1] -= alpha * delta_t;
-                    strain_mech[2] -= alpha * delta_t;
+                    let th_strain_curr = alpha_curr * (t_curr_ip - t_ref);
+
+                    let alpha_init = material.thermal_expansion(t_init_ip).unwrap_or(alpha_curr);
+                    let th_strain_init = alpha_init * (t_init_ip - t_ref);
+
+                    let delta_th_strain = th_strain_curr - th_strain_init;
+
+                    strain_mech[0] -= delta_th_strain;
+                    strain_mech[1] -= delta_th_strain;
+                    strain_mech[2] -= delta_th_strain;
                 }
 
                 // Use update_state to get correct stress for possibly non-linear material
@@ -324,7 +336,8 @@ impl StaticStep {
                     .map_or(&empty_vec, |m| &m[ip_idx]);
                 // We use dtime=0 here for results calculation as it's a post-processing step
                 // (though for some laws it might matter, but usually dtime is only for rate-dependent)
-                let (_, stress, _) = material.update_state(t_ip, &strain_mech, state_old, 0.0)?;
+                let (_, stress, _) =
+                    material.update_state(t_curr_ip, &strain_mech, state_old, 0.0)?;
 
                 for i in 0..6 {
                     avg_stress[i] += stress[i];

@@ -26,17 +26,20 @@ impl Assembler {
     /// * `project` - The FEA project containing mesh and materials.
     /// * `is_symmetric` - Whether to assume and enforce matrix symmetry.
     /// * `u_global` - Optional current displacement field (used for non-linear stiffness).
-    /// * `t_nodal` - Optional nodal temperatures.
+    /// * `t_initial` - Optional nodal temperatures at start of analysis.
+    /// * `t_current` - Optional nodal temperatures at current time.
     /// * `material_states_old` - Optional SDVs at the start of the increment.
     /// * `dtime` - Time increment.
     ///
     /// # Errors
     /// Returns `FerrixError` if an element has no material or if node mappings are missing.
+    #[allow(clippy::too_many_arguments)]
     pub fn assemble(
         project: &Project,
         is_symmetric: bool,
         u_global: Option<&[f64]>,
-        t_nodal: Option<&[f64]>,
+        t_initial: Option<&[f64]>,
+        t_current: Option<&[f64]>,
         material_states_old: Option<&MaterialStates>,
         dtime: f64,
     ) -> Result<(TriMat<f64>, f64, MaterialStates)> {
@@ -62,19 +65,25 @@ impl Assembler {
             let material = &project.materials[*material_index];
 
             let node_ids = element.get_node_ids();
-            let node_temps = if let Some(t_glob) = t_nodal {
-                let mut t_vec = Vec::with_capacity(node_ids.len());
-                for &node_id in node_ids {
-                    let global_idx = project
-                        .mesh
-                        .get_index_for_node_id(node_id)
-                        .ok_or(FerrixError::NodeNotFound(node_id))?;
-                    t_vec.push(t_glob[global_idx]);
+
+            let extract_temps = |t_glob: Option<&[f64]>| -> Result<Option<Vec<f64>>> {
+                if let Some(t) = t_glob {
+                    let mut t_vec = Vec::with_capacity(node_ids.len());
+                    for &node_id in node_ids {
+                        let global_idx = project
+                            .mesh
+                            .get_index_for_node_id(node_id)
+                            .ok_or(FerrixError::NodeNotFound(node_id))?;
+                        t_vec.push(t[global_idx]);
+                    }
+                    Ok(Some(t_vec))
+                } else {
+                    Ok(None)
                 }
-                Some(t_vec)
-            } else {
-                None
             };
+
+            let temps_init = extract_temps(t_initial)?;
+            let temps_curr = extract_temps(t_current)?;
 
             // Extract u_el if u_global is provided
             let u_el = if let Some(u_glob) = u_global {
@@ -97,7 +106,8 @@ impl Assembler {
                 project,
                 material.as_ref(),
                 u_el.as_deref(),
-                node_temps.as_deref(),
+                temps_init.as_deref(),
+                temps_curr.as_deref(),
                 elem_states_old,
                 dtime,
                 is_symmetric,
@@ -156,7 +166,8 @@ impl Assembler {
     pub fn assemble_internal_force(
         project: &Project,
         u_global: &[f64],
-        t_nodal: &[f64],
+        t_initial: &[f64],
+        t_current: &[f64],
         material_states_old: Option<&MaterialStates>,
         dtime: f64,
         u_conf: Option<&[f64]>,
@@ -176,13 +187,15 @@ impl Assembler {
             let material = &project.materials[*material_index];
 
             let node_ids = element.get_node_ids();
-            let mut node_temps = Vec::with_capacity(node_ids.len());
+            let mut node_temps_init = Vec::with_capacity(node_ids.len());
+            let mut node_temps_curr = Vec::with_capacity(node_ids.len());
             for &node_id in node_ids {
                 let global_idx = project
                     .mesh
                     .get_index_for_node_id(node_id)
                     .ok_or(FerrixError::NodeNotFound(node_id))?;
-                node_temps.push(t_nodal[global_idx]);
+                node_temps_init.push(t_initial[global_idx]);
+                node_temps_curr.push(t_current[global_idx]);
             }
 
             let mut u_el = Vec::with_capacity(node_ids.len() * 3);
@@ -211,7 +224,8 @@ impl Assembler {
                 &project.mesh,
                 material.as_ref(),
                 &u_el,
-                &node_temps,
+                &node_temps_init,
+                &node_temps_curr,
                 elem_states_old,
                 dtime,
                 u_conf_el.as_deref(),
@@ -239,7 +253,11 @@ impl Assembler {
     ///
     /// # Errors
     /// Returns an error if any element thermal force cannot be computed.
-    pub fn assemble_thermal_force(project: &Project, t_nodal: &[f64]) -> Result<Vec<f64>> {
+    pub fn assemble_thermal_force(
+        project: &Project,
+        t_initial: &[f64],
+        t_current: &[f64],
+    ) -> Result<Vec<f64>> {
         let num_nodes = project.mesh.nodes.len();
         let num_dofs = num_nodes * 3;
         let mut f_th_global = vec![0.0; num_dofs];
@@ -257,16 +275,23 @@ impl Assembler {
             let material = &project.materials[*material_index];
 
             let node_ids = element.get_node_ids();
-            let mut node_temps = Vec::with_capacity(node_ids.len());
+            let mut node_temps_init = Vec::with_capacity(node_ids.len());
+            let mut node_temps_curr = Vec::with_capacity(node_ids.len());
             for &node_id in node_ids {
                 let global_idx = project
                     .mesh
                     .get_index_for_node_id(node_id)
                     .ok_or(FerrixError::NodeNotFound(node_id))?;
-                node_temps.push(t_nodal[global_idx]);
+                node_temps_init.push(t_initial[global_idx]);
+                node_temps_curr.push(t_current[global_idx]);
             }
 
-            let f_th_el = element.compute_thermal_force(project, material.as_ref(), &node_temps)?;
+            let f_th_el = element.compute_thermal_force(
+                project,
+                material.as_ref(),
+                &node_temps_init,
+                &node_temps_curr,
+            )?;
 
             for (i, _) in node_ids.iter().enumerate() {
                 let global_idx = project

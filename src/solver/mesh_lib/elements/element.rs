@@ -179,7 +179,8 @@ impl Element {
         project: &Project,
         material: &dyn Material,
         u_el: Option<&[f64]>,
-        node_temps: Option<&[f64]>,
+        node_temps_initial: Option<&[f64]>,
+        node_temps_current: Option<&[f64]>,
         material_states_old: Option<&Vec<Vec<f64>>>,
         dtime: f64,
         _is_symmetric: bool,
@@ -223,7 +224,15 @@ impl Element {
 
                     let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
 
-                    let t_ip = node_temps.map_or(0.0, |temps| {
+                    let t_curr = node_temps_current.map_or(0.0, |temps| {
+                        let mut t = 0.0;
+                        for i in 0..num_nodes {
+                            t += n_local[i] * temps[i];
+                        }
+                        t
+                    });
+
+                    let t_init = node_temps_initial.map_or(t_curr, |temps| {
                         let mut t = 0.0;
                         for i in 0..num_nodes {
                             t += n_local[i] * temps[i];
@@ -235,17 +244,24 @@ impl Element {
                         u_el.map_or(DVector::zeros(num_dofs), DVector::from_column_slice);
                     let mut strain = &b_mat * u_el_vec;
 
-                    if let Some(alpha) = material.thermal_expansion(t_ip) {
+                    // Subtract thermal strain delta: epsilon_th(T_curr) - epsilon_th(T_init)
+                    if let Some(alpha_curr) = material.thermal_expansion(t_curr) {
                         let t_ref = material.reference_temperature();
-                        let delta_t = t_ip - t_ref;
-                        strain[0] -= alpha * delta_t;
-                        strain[1] -= alpha * delta_t;
-                        strain[2] -= alpha * delta_t;
+                        let th_strain_curr = alpha_curr * (t_curr - t_ref);
+
+                        let alpha_init = material.thermal_expansion(t_init).unwrap_or(alpha_curr);
+                        let th_strain_init = alpha_init * (t_init - t_ref);
+
+                        let delta_th_strain = th_strain_curr - th_strain_init;
+
+                        strain[0] -= delta_th_strain;
+                        strain[1] -= delta_th_strain;
+                        strain[2] -= delta_th_strain;
                     }
 
                     let state_old = material_states_old.map_or(&empty_vec, |m| &m[ip_idx]);
                     let (d_tangent, _stress, state_new) =
-                        material.update_state(t_ip, &strain, state_old, dtime)?;
+                        material.update_state(t_curr, &strain, state_old, dtime)?;
                     updated_states.push(state_new);
 
                     k_el.add_assign(&(b_mat.transpose() * d_tangent * b_mat * weight));
@@ -266,12 +282,21 @@ impl Element {
         mesh: &Mesh,
         material: &dyn Material,
         u_el: &[f64],
-        node_temps: &[f64],
+        node_temps_initial: &[f64],
+        node_temps_current: &[f64],
         u_conf: Option<&[f64]>,
     ) -> Result<DVector<f64>> {
         // Just call the SDV version with None for old states
-        let (f_int, _) =
-            self.compute_internal_force_sdv(mesh, material, u_el, node_temps, None, 0.0, u_conf)?;
+        let (f_int, _) = self.compute_internal_force_sdv(
+            mesh,
+            material,
+            u_el,
+            node_temps_initial,
+            node_temps_current,
+            None,
+            0.0,
+            u_conf,
+        )?;
         Ok(f_int)
     }
 
@@ -285,7 +310,8 @@ impl Element {
         mesh: &Mesh,
         material: &dyn Material,
         u_el: &[f64],
-        node_temps: &[f64],
+        node_temps_initial: &[f64],
+        node_temps_current: &[f64],
         material_states_old: Option<&Vec<Vec<f64>>>,
         dtime: f64,
         u_conf: Option<&[f64]>,
@@ -327,27 +353,37 @@ impl Element {
 
                     let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
 
-                    // Interpolate temperature at integration point
-                    let mut t_ip = 0.0;
+                    // Interpolate temperatures at integration point
+                    let mut t_curr = 0.0;
+                    let mut t_init = 0.0;
                     for i in 0..num_nodes {
-                        t_ip += n_local[i] * node_temps[i];
+                        t_curr += n_local[i] * node_temps_current[i];
+                        t_init += n_local[i] * node_temps_initial[i];
                     }
+
+                    let _d_mat = material.build_elastic_d_matrix(t_curr)?;
 
                     let u_el_vec = DVector::from_column_slice(u_el);
                     let mut strain = &b_mat * u_el_vec;
 
-                    // Subtract thermal strain if expansion is defined
-                    if let Some(alpha) = material.thermal_expansion(t_ip) {
+                    // Subtract thermal strain delta: epsilon_th(T_curr) - epsilon_th(T_init)
+                    if let Some(alpha_curr) = material.thermal_expansion(t_curr) {
                         let t_ref = material.reference_temperature();
-                        let delta_t = t_ip - t_ref;
-                        strain[0] -= alpha * delta_t;
-                        strain[1] -= alpha * delta_t;
-                        strain[2] -= alpha * delta_t;
+                        let th_strain_curr = alpha_curr * (t_curr - t_ref);
+
+                        let alpha_init = material.thermal_expansion(t_init).unwrap_or(alpha_curr);
+                        let th_strain_init = alpha_init * (t_init - t_ref);
+
+                        let delta_th_strain = th_strain_curr - th_strain_init;
+
+                        strain[0] -= delta_th_strain;
+                        strain[1] -= delta_th_strain;
+                        strain[2] -= delta_th_strain;
                     }
 
                     let state_old = material_states_old.map_or(&empty_vec, |m| &m[ip_idx]);
                     let (_d_tangent, stress, state_new) =
-                        material.update_state(t_ip, &strain, state_old, dtime)?;
+                        material.update_state(t_curr, &strain, state_old, dtime)?;
                     updated_states.push(state_new);
 
                     f_int.add_assign(&(b_mat.transpose() * stress * weight));
@@ -367,7 +403,8 @@ impl Element {
         &self,
         project: &Project,
         material: &dyn Material,
-        node_temps: &[f64],
+        node_temps_initial: &[f64],
+        node_temps_current: &[f64],
     ) -> Result<DVector<f64>> {
         match self {
             Element::C3D4(_, node_ids) => {
@@ -389,17 +426,26 @@ impl Element {
                     let (n_local, dn_local) =
                         self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
 
-                    // Interpolate temperature at integration point
-                    let mut t_ip = 0.0;
+                    // Interpolate temperatures at integration point
+                    let mut t_curr = 0.0;
+                    let mut t_init = 0.0;
                     for i in 0..num_nodes {
-                        t_ip += n_local[i] * node_temps[i];
+                        t_curr += n_local[i] * node_temps_current[i];
+                        t_init += n_local[i] * node_temps_initial[i];
                     }
 
-                    let Some(alpha) = material.thermal_expansion(t_ip) else {
+                    let Some(alpha_curr) = material.thermal_expansion(t_curr) else {
                         continue;
                     };
                     let t_ref = material.reference_temperature();
-                    let d_mat = material.build_elastic_d_matrix(t_ip)?;
+                    let th_strain_curr = alpha_curr * (t_curr - t_ref);
+
+                    let alpha_init = material.thermal_expansion(t_init).unwrap_or(alpha_curr);
+                    let th_strain_init = alpha_init * (t_init - t_ref);
+
+                    let delta_th_strain = th_strain_curr - th_strain_init;
+
+                    let d_mat = material.build_elastic_d_matrix(t_curr)?;
 
                     let jacobian = &dn_local * node_coords.transpose();
                     let det_j = jacobian.determinant();
@@ -411,12 +457,11 @@ impl Element {
 
                     let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
 
-                    // Thermal strain vector: [alpha*deltaT, alpha*deltaT, alpha*deltaT, 0, 0, 0]
-                    let delta_t = t_ip - t_ref;
+                    // Thermal strain delta vector
                     let mut strain_th = DVector::<f64>::zeros(6);
-                    strain_th[0] = alpha * delta_t;
-                    strain_th[1] = alpha * delta_t;
-                    strain_th[2] = alpha * delta_t;
+                    strain_th[0] = delta_th_strain;
+                    strain_th[1] = delta_th_strain;
+                    strain_th[2] = delta_th_strain;
 
                     let stress_th = d_mat * strain_th;
                     f_th.add_assign(&(b_mat.transpose() * stress_th * weight));
