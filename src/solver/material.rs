@@ -68,6 +68,59 @@ impl TemperatureDependentLUT {
     }
 }
 
+/// Represents the solution-dependent state variables at a single material point.
+#[derive(Debug, Clone, Default)]
+pub struct MaterialPointState {
+    pub variables: Vec<f64>,
+}
+
+impl std::ops::Index<usize> for MaterialPointState {
+    type Output = f64;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.variables[index]
+    }
+}
+
+impl std::ops::IndexMut<usize> for MaterialPointState {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.variables[index]
+    }
+}
+
+/// Represents the solution-dependent state variables for all integration points of an element.
+#[derive(Debug, Clone, Default)]
+pub struct ElementMaterialState {
+    pub ip_states: Vec<MaterialPointState>,
+}
+
+impl ElementMaterialState {
+    /// Creates a new element state with specified number of integration points and variables.
+    #[must_use]
+    pub fn new(num_ips: usize, num_vars: usize) -> Self {
+        Self {
+            ip_states: vec![
+                MaterialPointState {
+                    variables: vec![0.0; num_vars]
+                };
+                num_ips
+            ],
+        }
+    }
+}
+
+impl std::ops::Index<usize> for ElementMaterialState {
+    type Output = MaterialPointState;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.ip_states[index]
+    }
+}
+
+impl std::ops::IndexMut<usize> for ElementMaterialState {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.ip_states[index]
+    }
+}
+
 /// Defines the physical and mechanical properties of a material.
 ///
 /// Properties return `Option<f64>` to allow for sparse material definitions.
@@ -128,13 +181,17 @@ pub trait Material: std::fmt::Debug + Send + Sync {
         &self,
         temp: f64,
         strain: &nalgebra::DVector<f64>,
-        state_old: &[f64],
+        state_old: &MaterialPointState,
         _dtime: f64,
-    ) -> Result<(nalgebra::DMatrix<f64>, nalgebra::DVector<f64>, Vec<f64>)> {
+    ) -> Result<(
+        nalgebra::DMatrix<f64>,
+        nalgebra::DVector<f64>,
+        MaterialPointState,
+    )> {
         // Default implementation for linear material
         let d_mat = self.build_elastic_d_matrix(temp)?;
         let stress = &d_mat * strain;
-        Ok((d_mat, stress, state_old.to_vec()))
+        Ok((d_mat, stress, state_old.clone()))
     }
 
     /// Builds the elastic constitutive matrix (D-matrix) for the material (6x6 for 3D).

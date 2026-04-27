@@ -5,7 +5,7 @@
 
 use crate::solver::error::{FerrixError, Result};
 use crate::solver::ids::{ElementId, NodeId};
-use crate::solver::material::Material;
+use crate::solver::material::{ElementMaterialState, Material, MaterialPointState};
 use crate::solver::mesh_lib::mesh::Mesh;
 use crate::solver::project::Project;
 use nalgebra::{DMatrix, DVector, SMatrix};
@@ -179,10 +179,9 @@ impl Element {
         u_el: Option<&[f64]>,
         node_temps_initial: Option<&[f64]>,
         node_temps_current: Option<&[f64]>,
-        material_states_old: Option<&Vec<Vec<f64>>>,
+        material_states_old: Option<&ElementMaterialState>,
         dtime: f64,
-        _is_symmetric: bool,
-    ) -> Result<(DMatrix<f64>, Option<Vec<Vec<f64>>>)> {
+    ) -> Result<(DMatrix<f64>, Option<ElementMaterialState>)> {
         match self {
             Element::C3D4(_, node_ids) => {
                 let num_nodes = node_ids.len();
@@ -207,7 +206,7 @@ impl Element {
                     node_coords.set_column(i, &pos);
                 }
 
-                let empty_vec = Vec::new();
+                let empty_state = MaterialPointState::default();
 
                 for (ip_idx, gp) in self.integration_points().iter().enumerate() {
                     let (n_local, dn_local) =
@@ -257,7 +256,7 @@ impl Element {
                         strain[2] -= delta_th_strain;
                     }
 
-                    let state_old = material_states_old.map_or(&empty_vec, |m| &m[ip_idx]);
+                    let state_old = material_states_old.map_or(&empty_state, |m| &m[ip_idx]);
                     let (d_tangent, _stress, state_new) =
                         material.update_state(t_curr, &strain, state_old, dtime)?;
                     updated_states.push(state_new);
@@ -266,7 +265,16 @@ impl Element {
                 }
 
                 let has_sdvs = material.num_state_variables() > 0;
-                Ok((k_el, if has_sdvs { Some(updated_states) } else { None }))
+                Ok((
+                    k_el,
+                    if has_sdvs {
+                        Some(ElementMaterialState {
+                            ip_states: updated_states,
+                        })
+                    } else {
+                        None
+                    },
+                ))
             }
         }
     }
@@ -310,10 +318,10 @@ impl Element {
         u_el: &[f64],
         node_temps_initial: &[f64],
         node_temps_current: &[f64],
-        material_states_old: Option<&Vec<Vec<f64>>>,
+        material_states_old: Option<&ElementMaterialState>,
         dtime: f64,
         u_conf: Option<&[f64]>,
-    ) -> Result<(DVector<f64>, Option<Vec<Vec<f64>>>)> {
+    ) -> Result<(DVector<f64>, Option<ElementMaterialState>)> {
         match self {
             Element::C3D4(_, node_ids) => {
                 let num_nodes = node_ids.len();
@@ -336,7 +344,7 @@ impl Element {
                     node_coords.set_column(i, &pos);
                 }
 
-                let empty_vec = Vec::new();
+                let empty_state = MaterialPointState::default();
 
                 for (ip_idx, gp) in self.integration_points().iter().enumerate() {
                     let (n_local, dn_local) =
@@ -379,7 +387,7 @@ impl Element {
                         strain[2] -= delta_th_strain;
                     }
 
-                    let state_old = material_states_old.map_or(&empty_vec, |m| &m[ip_idx]);
+                    let state_old = material_states_old.map_or(&empty_state, |m| &m[ip_idx]);
                     let (_d_tangent, stress, state_new) =
                         material.update_state(t_curr, &strain, state_old, dtime)?;
                     updated_states.push(state_new);
@@ -388,7 +396,16 @@ impl Element {
                 }
 
                 let has_sdvs = material.num_state_variables() > 0;
-                Ok((f_int, if has_sdvs { Some(updated_states) } else { None }))
+                Ok((
+                    f_int,
+                    if has_sdvs {
+                        Some(ElementMaterialState {
+                            ip_states: updated_states,
+                        })
+                    } else {
+                        None
+                    },
+                ))
             }
         }
     }

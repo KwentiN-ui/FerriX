@@ -4,6 +4,7 @@
 //! results (like displacements) as the simulation progresses through steps.
 
 use crate::solver::ids::ElementId;
+use crate::solver::material::ElementMaterialState;
 use crate::solver::project::Project;
 use std::collections::HashMap;
 
@@ -21,8 +22,8 @@ pub struct SolutionState {
     /// Current nodal temperatures.
     pub temperatures: Vec<f64>,
     /// State-dependent variables (SDVs) for each element at each integration point.
-    /// Map: `ElementId` -> Vec<Vec<`SDV_Values`>> (outer Vec is IP, inner Vec is SDVs)
-    pub material_states: HashMap<ElementId, Vec<Vec<f64>>>,
+    /// Map: `ElementId` -> `ElementMaterialState`
+    pub material_states: HashMap<ElementId, ElementMaterialState>,
 }
 
 impl SolutionState {
@@ -68,8 +69,10 @@ impl SolutionState {
             let num_ips = element.integration_points().len();
 
             if num_sdvs > 0 {
-                self.material_states
-                    .insert(element.get_id(), vec![vec![0.0; num_sdvs]; num_ips]);
+                self.material_states.insert(
+                    element.get_id(),
+                    ElementMaterialState::new(num_ips, num_sdvs),
+                );
             }
         }
     }

@@ -6,12 +6,13 @@
 
 use crate::solver::error::{FerrixError, Result};
 use crate::solver::ids::ElementId;
+use crate::solver::material::ElementMaterialState;
 use crate::solver::project::Project;
 use sprs::TriMat;
 use std::collections::HashMap;
 
 /// Type definition for material states mapping elements to their integration point variables.
-pub type MaterialStates = HashMap<ElementId, Vec<Vec<f64>>>;
+pub type MaterialStates = HashMap<ElementId, ElementMaterialState>;
 
 /// A utility for assembling global matrices and vectors from element contributions.
 pub struct Assembler;
@@ -108,9 +109,7 @@ impl Assembler {
                 temps_curr.as_deref(),
                 elem_states_old,
                 dtime,
-                false, // is_symmetric parameter is being removed from elements too
             )?;
-
             if let Some(states) = updated_states {
                 material_states_new.insert(elem_id, states);
             }

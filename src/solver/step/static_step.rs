@@ -8,6 +8,7 @@ use crate::solver::error::{FerrixError, Result};
 use crate::solver::ids::NodeId;
 use crate::solver::increment::IncrementData;
 use crate::solver::io::writer::ResultWriter;
+use crate::solver::material::MaterialPointState;
 use crate::solver::preconditioner::DiagonalPreconditioner;
 use crate::solver::project::Project;
 use crate::solver::results::{FieldType, IncResult, NodalResult};
@@ -275,7 +276,7 @@ impl StaticStep {
         let mut nodal_strain = NodalResult::new("E", FieldType::Strain);
         let mut node_element_count: HashMap<NodeId, usize> = HashMap::new();
 
-        let empty_vec = Vec::new();
+        let empty_state = MaterialPointState::default();
 
         for element in project.mesh.elements.values() {
             let elem_id = element.get_id();
@@ -338,7 +339,7 @@ impl StaticStep {
                 let state_old = solution_state
                     .material_states
                     .get(&elem_id)
-                    .map_or(&empty_vec, |m| &m[ip_idx]);
+                    .map_or(&empty_state, |m| &m[ip_idx]);
                 // We use dtime=0 here for results calculation as it's a post-processing step
                 // (though for some laws it might matter, but usually dtime is only for rate-dependent)
                 let (_, stress, _) =
