@@ -20,6 +20,37 @@ cargo install --git https://github.com/KwentiN-ui/ferrix.git
 to compile the newest version yourself. This will also make the tool available as `ferrix` in your terminal.
 
 ## Features
-The project is in its infancy. I am in the progress of implementing the core structure and internal api.
-If you still want to try it out I recommend running one of the C3D4 example files in `test_inputs`.
-The performance is not far behind what you'd expect from even the commercial solvers.
+
+FerriX aims for full numerical parity with CalculiX for all supported features. Supported keywords include:
+
+### Analysis Steps
+- `*STATIC` (Linear and `NLGEOM`)
+
+### Element Types
+- `C3D4` (4-node linear tetrahedron)
+- `C3D20` (20-node quadratic brick)
+
+### Material Definition
+- `*MATERIAL`
+- `*ELASTIC` (Temperature-dependent)
+- `*DENSITY` (Temperature-dependent)
+- `*EXPANSION` (Temperature-dependent, with `ZERO`)
+- `*DEPVAR` (Solution-dependent state variables)
+
+### Boundary Conditions & Loading
+- `*BOUNDARY`
+- `*CLOAD`
+- `*INITIAL CONDITIONS, TYPE=TEMPERATURE`
+- `*AMPLITUDE`
+
+### Mesh & Sets
+- `*NODE`
+- `*ELEMENT`
+- `*NSET`
+- `*ELSET`
+- `*SOLID SECTION`
+
+### Output Control
+- `*NODE FILE` (U, RF)
+- `*EL FILE` (S, E)
+- `*NODE PRINT`
