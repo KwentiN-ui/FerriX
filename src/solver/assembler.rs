@@ -24,7 +24,6 @@ impl Assembler {
     ///
     /// # Arguments
     /// * `project` - The FEA project containing mesh and materials.
-    /// * `is_symmetric` - Whether to assume and enforce matrix symmetry.
     /// * `u_global` - Optional current displacement field (used for non-linear stiffness).
     /// * `t_initial` - Optional nodal temperatures at start of analysis.
     /// * `t_current` - Optional nodal temperatures at current time.
@@ -36,7 +35,6 @@ impl Assembler {
     #[allow(clippy::too_many_arguments)]
     pub fn assemble(
         project: &Project,
-        is_symmetric: bool,
         u_global: Option<&[f64]>,
         t_initial: Option<&[f64]>,
         t_current: Option<&[f64]>,
@@ -110,7 +108,7 @@ impl Assembler {
                 temps_curr.as_deref(),
                 elem_states_old,
                 dtime,
-                is_symmetric,
+                false, // is_symmetric parameter is being removed from elements too
             )?;
 
             if let Some(states) = updated_states {
@@ -125,18 +123,14 @@ impl Assembler {
                     .get_index_for_node_id(*node_id_i)
                     .ok_or(FerrixError::NodeNotFound(*node_id_i))?;
 
-                let start_j = if is_symmetric { i } else { 0 };
-
-                for (j, node_id_j) in node_ids.iter().enumerate().take(num_nodes_el).skip(start_j) {
+                for (j, node_id_j) in node_ids.iter().enumerate().take(num_nodes_el) {
                     let global_index_j = project
                         .mesh
                         .get_index_for_node_id(*node_id_j)
                         .ok_or(FerrixError::NodeNotFound(*node_id_j))?;
 
                     for dof_i in 0..3 {
-                        let start_dof_j = if is_symmetric && i == j { dof_i } else { 0 };
-
-                        for dof_j in start_dof_j..3 {
+                        for dof_j in 0..3 {
                             let val = k_el[(i * 3 + dof_i, j * 3 + dof_j)];
 
                             if val.abs() > 1e-12 {
@@ -147,8 +141,6 @@ impl Assembler {
 
                                 if row == col {
                                     max_diag_val = max_diag_val.max(val.abs());
-                                } else if is_symmetric {
-                                    triplet.add_triplet(col, row, val);
                                 }
                             }
                         }

@@ -132,7 +132,6 @@ impl Element {
         &self,
         project: &Project,
         d_mat: &DMatrix<f64>,
-        _is_symmetric: bool,
         u_el: Option<&[f64]>,
     ) -> Result<DMatrix<f64>> {
         let d_static = SMatrix::<f64, 6, 6>::from_column_slice(d_mat.as_slice());
@@ -161,7 +160,6 @@ impl Element {
                     &coords,
                     &self.integration_points(),
                     shape_func_c3d4_static,
-                    true, // Parity check uses symmetric by default
                 )?;
 
                 Ok(DMatrix::from_row_slice(12, 12, k_static.as_slice()))
@@ -533,7 +531,6 @@ pub fn compute_generic_stiffness<const N: usize, const DOF: usize>(
     node_coords: &SMatrix<f64, 3, N>,
     integration_points: &[GaussPoint],
     shape_fn_derivatives: fn(f64, f64, f64) -> SMatrix<f64, 3, N>,
-    is_symmetric: bool,
 ) -> Result<SMatrix<f64, DOF, DOF>> {
     let mut k_el = SMatrix::<f64, DOF, DOF>::zeros();
 
@@ -550,18 +547,13 @@ pub fn compute_generic_stiffness<const N: usize, const DOF: usize>(
         for i in 0..N {
             let bi = build_b_block_static::<N>(&dn_global, i);
             let bit_d = bi.transpose() * d_mat;
-            let start_j = if is_symmetric { i } else { 0 };
 
-            for j in start_j..N {
+            for j in 0..N {
                 let bj = build_b_block_static::<N>(&dn_global, j);
                 let k_block = (bit_d * bj) * weight;
 
                 k_el.fixed_view_mut::<3, 3>(i * 3, j * 3)
                     .add_assign(k_block);
-                if is_symmetric && i != j {
-                    k_el.fixed_view_mut::<3, 3>(j * 3, i * 3)
-                        .add_assign(k_block.transpose());
-                }
             }
         }
     }

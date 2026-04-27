@@ -172,7 +172,6 @@ impl StaticStep {
                 // 5. Assemble Tangent Stiffness Matrix K
                 let (mut triplet, max_diag_val, _) = Assembler::assemble(
                     project,
-                    true,
                     if self.nlgeom { Some(&u_curr) } else { None },
                     Some(&solution_state.initial_temperatures),
                     Some(&solution_state.temperatures),
@@ -321,11 +320,11 @@ impl StaticStep {
                     t_init_ip += n_local[i] * t_init_el[i];
                 }
 
-                if let Some(alpha_curr) = material.thermal_expansion(t_curr_ip) {
+                if let Some(alpha) = material.thermal_expansion(t_curr_ip) {
                     let t_ref = material.reference_temperature();
-                    let th_strain_curr = alpha_curr * (t_curr_ip - t_ref);
+                    let th_strain_curr = alpha * (t_curr_ip - t_ref);
 
-                    let alpha_init = material.thermal_expansion(t_init_ip).unwrap_or(alpha_curr);
+                    let alpha_init = material.thermal_expansion(t_init_ip).unwrap_or(alpha);
                     let th_strain_init = alpha_init * (t_init_ip - t_ref);
 
                     let delta_th_strain = th_strain_curr - th_strain_init;
