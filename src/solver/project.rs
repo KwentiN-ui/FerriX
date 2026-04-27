@@ -3,8 +3,9 @@
 //! The `Project` struct in this module acts as the "God Object" or central hub,
 //! aggregating all mesh, material, and step data into a single container.
 
+use crate::solver::amplitude::Amplitude;
 use crate::solver::error::{FerrixError, Result};
-use crate::solver::{amplitude::Amplitude, ids::ElementId};
+use crate::solver::ids::{ElementId, NodeId};
 use std::{
     collections::HashMap,
     fmt::Write,
@@ -45,6 +46,10 @@ pub struct Project {
     pub initial_loads: Vec<Load>,
     /// A collection of all boundary conditions (*BOUNDARY) defined before the first step.
     pub initial_bcs: Vec<BoundaryCondition>,
+    /// Initial nodal temperatures (*INITIAL CONDITIONS, TYPE=TEMPERATURE).
+    pub initial_temperatures: HashMap<NodeId, f64>,
+    /// Default temperature for nodes without explicit initial conditions.
+    pub default_initial_temperature: f64,
     /// Nodal output variables requested by the user (e.g. `U`, `RF`).
     pub nodal_output: Vec<String>,
     /// Element output variables requested by the user (e.g. `S`, `E`).

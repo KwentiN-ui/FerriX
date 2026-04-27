@@ -21,6 +21,7 @@ impl Assembler {
     /// * `project` - The FEA project containing mesh and materials.
     /// * `is_symmetric` - Whether to assume and enforce matrix symmetry.
     /// * `u_global` - Optional current displacement field (used for non-linear stiffness).
+    /// * `t_nodal` - Optional nodal temperatures.
     ///
     /// # Errors
     /// Returns `FerrixError` if an element has no material or if node mappings are missing.
@@ -28,6 +29,7 @@ impl Assembler {
         project: &Project,
         is_symmetric: bool,
         u_global: Option<&[f64]>,
+        t_nodal: Option<&[f64]>,
     ) -> Result<(TriMat<f64>, f64)> {
         let num_nodes = project.mesh.nodes.len();
         if num_nodes == 0 {
@@ -52,9 +54,27 @@ impl Assembler {
                 })?;
             let material = &project.materials[*material_index];
 
-            let d_matrix = material.build_elastic_d_matrix(0.0)?;
-
             let node_ids = element.get_node_ids();
+            let node_temps = if let Some(t_glob) = t_nodal {
+                let mut t_vec = Vec::with_capacity(node_ids.len());
+                for &node_id in node_ids {
+                    let global_idx = project
+                        .mesh
+                        .get_index_for_node_id(node_id)
+                        .ok_or(FerrixError::NodeNotFound(node_id))?;
+                    t_vec.push(t_glob[global_idx]);
+                }
+                Some(t_vec)
+            } else {
+                None
+            };
+
+            // Use average temperature for the element's D-matrix
+            #[allow(clippy::cast_precision_loss)]
+            let t_avg = node_temps
+                .as_ref()
+                .map_or(0.0, |t| t.iter().sum::<f64>() / t.len() as f64);
+            let d_matrix = material.build_elastic_d_matrix(t_avg)?;
 
             // Extract u_el if u_global is provided
             let u_el = if let Some(u_glob) = u_global {
@@ -124,6 +144,7 @@ impl Assembler {
     pub fn assemble_internal_force(
         project: &Project,
         u_global: &[f64],
+        t_nodal: &[f64],
         u_conf: Option<&[f64]>,
     ) -> Result<Vec<f64>> {
         let num_nodes = project.mesh.nodes.len();
@@ -141,9 +162,17 @@ impl Assembler {
                     ))
                 })?;
             let material = &project.materials[*material_index];
-            let d_matrix = material.build_elastic_d_matrix(0.0)?;
 
             let node_ids = element.get_node_ids();
+            let mut node_temps = Vec::with_capacity(node_ids.len());
+            for &node_id in node_ids {
+                let global_idx = project
+                    .mesh
+                    .get_index_for_node_id(node_id)
+                    .ok_or(FerrixError::NodeNotFound(node_id))?;
+                node_temps.push(t_nodal[global_idx]);
+            }
+
             let mut u_el = Vec::with_capacity(node_ids.len() * 3);
             let mut u_conf_el = if u_conf.is_some() {
                 Some(Vec::with_capacity(node_ids.len() * 3))
@@ -166,8 +195,9 @@ impl Assembler {
 
             let f_int_el = element.compute_internal_force(
                 &project.mesh,
+                material.as_ref(),
                 &u_el,
-                &d_matrix,
+                &node_temps,
                 u_conf_el.as_deref(),
             )?;
 
@@ -183,5 +213,52 @@ impl Assembler {
         }
 
         Ok(f_int_global)
+    }
+
+    /// Assembles the global thermal force vector.
+    ///
+    /// # Errors
+    /// Returns an error if any element thermal force cannot be computed.
+    pub fn assemble_thermal_force(project: &Project, t_nodal: &[f64]) -> Result<Vec<f64>> {
+        let num_nodes = project.mesh.nodes.len();
+        let num_dofs = num_nodes * 3;
+        let mut f_th_global = vec![0.0; num_dofs];
+
+        for element in project.mesh.elements.values() {
+            let material_index = project
+                .element_materials
+                .get(&element.get_id())
+                .ok_or_else(|| {
+                    FerrixError::InvalidModelState(format!(
+                        "Element {} has no material assigned.",
+                        element.get_id()
+                    ))
+                })?;
+            let material = &project.materials[*material_index];
+
+            let node_ids = element.get_node_ids();
+            let mut node_temps = Vec::with_capacity(node_ids.len());
+            for &node_id in node_ids {
+                let global_idx = project
+                    .mesh
+                    .get_index_for_node_id(node_id)
+                    .ok_or(FerrixError::NodeNotFound(node_id))?;
+                node_temps.push(t_nodal[global_idx]);
+            }
+
+            let f_th_el = element.compute_thermal_force(project, material.as_ref(), &node_temps)?;
+
+            for (i, _) in node_ids.iter().enumerate() {
+                let global_idx = project
+                    .mesh
+                    .get_index_for_node_id(node_ids[i])
+                    .ok_or(FerrixError::NodeNotFound(node_ids[i]))?;
+                for dof in 0..3 {
+                    f_th_global[global_idx * 3 + dof] += f_th_el[i * 3 + dof];
+                }
+            }
+        }
+
+        Ok(f_th_global)
     }
 }

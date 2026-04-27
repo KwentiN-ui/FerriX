@@ -94,6 +94,17 @@ pub trait Material: std::fmt::Debug + Send + Sync {
         None
     }
 
+    /// Returns the thermal expansion coefficient (alpha) at a given temperature.
+    fn thermal_expansion(&self, temp: f64) -> Option<f64> {
+        let _ = temp;
+        None
+    }
+
+    /// Returns the reference temperature for thermal expansion.
+    fn reference_temperature(&self) -> f64 {
+        0.0
+    }
+
     /// Builds the elastic constitutive matrix (D-matrix) for the material (6x6 for 3D).
     /// Uses Voigt notation: [xx, yy, zz, xy, yz, zx].
     ///
@@ -137,6 +148,8 @@ pub struct BaseMaterial {
     pub density: Option<TemperatureDependentLUT>,
     pub youngs_modulus: Option<TemperatureDependentLUT>,
     pub poisson_ratio: Option<TemperatureDependentLUT>,
+    pub thermal_expansion: Option<TemperatureDependentLUT>,
+    pub reference_temperature: f64,
 }
 
 impl Material for BaseMaterial {
@@ -156,6 +169,16 @@ impl Material for BaseMaterial {
 
     fn poisson_ratio(&self, temp: f64) -> Option<f64> {
         self.poisson_ratio.as_ref().map(|lut| lut.interpolate(temp))
+    }
+
+    fn thermal_expansion(&self, temp: f64) -> Option<f64> {
+        self.thermal_expansion
+            .as_ref()
+            .map(|lut| lut.interpolate(temp))
+    }
+
+    fn reference_temperature(&self) -> f64 {
+        self.reference_temperature
     }
 }
 
@@ -188,6 +211,8 @@ mod tests {
             density: None,
             youngs_modulus: Some(e_lut),
             poisson_ratio: Some(nu_lut),
+            thermal_expansion: None,
+            reference_temperature: 0.0,
         };
 
         assert_eq!(material.youngs_modulus(0.0), Some(210_000.0));

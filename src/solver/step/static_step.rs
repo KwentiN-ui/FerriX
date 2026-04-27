@@ -103,12 +103,18 @@ impl StaticStep {
                 // 2. Calculate Internal Forces F_int
                 // If NLGEOM is active, internal forces are integrated over the current configuration.
                 // Otherwise (Linear), we integrate over the initial configuration.
+                // Thermal strain is handled inside compute_internal_force.
                 let u_conf = if self.nlgeom {
                     Some(u_curr.as_slice())
                 } else {
                     None
                 };
-                let f_int = Assembler::assemble_internal_force(project, &u_curr, u_conf)?;
+                let f_int = Assembler::assemble_internal_force(
+                    project,
+                    &u_curr,
+                    &solution_state.temperatures,
+                    u_conf,
+                )?;
 
                 // 3. Calculate Residual R = F_ext - F_int
                 let mut residual = vec![0.0; num_dofs];
@@ -156,6 +162,7 @@ impl StaticStep {
                     project,
                     true,
                     if self.nlgeom { Some(&u_curr) } else { None },
+                    Some(&solution_state.temperatures),
                 )?;
 
                 // 6. Apply Boundary Conditions (Penalty Method) to Tangent Matrix
@@ -249,10 +256,12 @@ impl StaticStep {
         for element in project.mesh.elements.values() {
             let node_ids = element.get_node_ids();
             let mut u_el = Vec::new();
+            let mut t_el = Vec::new();
             for &node_id in node_ids {
                 if let Some(idx) = project.mesh.get_index_for_node_id(node_id) {
                     let dof_start = idx * 3;
                     u_el.extend_from_slice(&solution_state.displacements[dof_start..dof_start + 3]);
+                    t_el.push(solution_state.temperatures[idx]);
                 }
             }
 
@@ -266,7 +275,9 @@ impl StaticStep {
                     ))
                 })?;
             let material = &project.materials[*material_idx];
-            let d_matrix = material.build_elastic_d_matrix(0.0)?;
+
+            let t_avg = t_el.iter().sum::<f64>() / t_el.len() as f64;
+            let d_matrix = material.build_elastic_d_matrix(t_avg)?;
 
             let mut avg_stress = [0.0; 6];
             let mut avg_strain = [0.0; 6];

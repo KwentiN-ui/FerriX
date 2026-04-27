@@ -54,6 +54,7 @@ pub enum Keyword {
     ShellSection,
     Conductivity,
     SpecificHeat,
+    InitialConditions,
 }
 
 /// The main parser for converting input file text into a `Project` model.
@@ -74,6 +75,8 @@ pub struct Parser<'a> {
     step_counter: usize,
     step_loads: Vec<Load>,
     step_bcs: Vec<BoundaryCondition>,
+    // keyword specific state
+    initial_condition_type: Option<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -96,6 +99,7 @@ impl<'a> Parser<'a> {
             step_counter: 0,
             step_loads: Vec::new(),
             step_bcs: Vec::new(),
+            initial_condition_type: None,
         }
     }
 
@@ -198,7 +202,28 @@ impl<'a> Parser<'a> {
                         density: None,
                         youngs_modulus: None,
                         poisson_ratio: None,
+                        thermal_expansion: None,
+                        reference_temperature: 0.0,
                     });
+                }
+                Keyword::Expansion => {
+                    let kwargs = get_keyword_arguments(line);
+                    if let Some(mat) = self.materials.last_mut() {
+                        if let Some(zero_str) = kwargs.get("ZERO").and_then(Option::as_deref) {
+                            mat.reference_temperature =
+                                zero_str.parse().map_err(|e| FerrixError::ParseError {
+                                    line: self.line_nr,
+                                    message: format!("Invalid ZERO value in *EXPANSION: {e}"),
+                                })?;
+                        }
+                    }
+                }
+                Keyword::InitialConditions => {
+                    let kwargs = get_keyword_arguments(line);
+                    self.initial_condition_type = kwargs
+                        .get("TYPE")
+                        .and_then(Option::as_deref)
+                        .map(str::to_uppercase);
                 }
                 Keyword::SolidSection => {
                     let kwargs = get_keyword_arguments(line);
@@ -463,6 +488,8 @@ impl<'a> Parser<'a> {
                 Keyword::Elset => self.parse_elset(line),
                 Keyword::Elastic => self.parse_elastic(line)?,
                 Keyword::Density => self.parse_density(line)?,
+                Keyword::Expansion => self.parse_expansion(line)?,
+                Keyword::InitialConditions => self.parse_initial_conditions(line)?,
                 Keyword::NodeFile => {
                     self.project
                         .nodal_output
@@ -627,6 +654,66 @@ impl<'a> Parser<'a> {
                     lut.data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
                 } else {
                     material.density = Some(TemperatureDependentLUT::new(vec![(temp, rho)]));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_expansion(&mut self, line: &str) -> Result<()> {
+        if let Some(material) = self.materials.last_mut() {
+            let parts: Vec<f64> = line
+                .split(',')
+                .map(|s| {
+                    s.trim().parse().map_err(|e| FerrixError::ParseError {
+                        line: self.line_nr,
+                        message: format!("Invalid expansion constant: {e}"),
+                    })
+                })
+                .collect::<Result<Vec<f64>>>()?;
+
+            if !parts.is_empty() {
+                let alpha = parts[0];
+                let temp = if parts.len() >= 2 { parts[1] } else { 0.0 };
+
+                if let Some(lut) = &mut material.thermal_expansion {
+                    lut.data.push((temp, alpha));
+                    lut.data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                } else {
+                    material.thermal_expansion =
+                        Some(TemperatureDependentLUT::new(vec![(temp, alpha)]));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_initial_conditions(&mut self, line: &str) -> Result<()> {
+        if let Some(ic_type) = &self.initial_condition_type {
+            if ic_type == "TEMPERATURE" {
+                let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+                if parts.len() >= 2 {
+                    let target = parts[0];
+                    let temp: f64 = parts[1].parse().map_err(|e| FerrixError::ParseError {
+                        line: self.line_nr,
+                        message: format!("Invalid temperature value: {e}"),
+                    })?;
+
+                    let resolve_target = |target: &str, mesh: &Mesh| -> Vec<NodeId> {
+                        let t = target.trim();
+                        if let Some(ids) = mesh.node_sets.get(t) {
+                            return ids.clone();
+                        }
+                        if let Ok(id) = t.parse::<usize>() {
+                            return vec![NodeId(id)];
+                        }
+                        Vec::new()
+                    };
+
+                    let target_nodes = resolve_target(target, &self.project.mesh);
+                    for node_id in target_nodes {
+                        self.project.initial_temperatures.insert(node_id, temp);
+                    }
                 }
             }
         }

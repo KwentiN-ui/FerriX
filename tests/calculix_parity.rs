@@ -22,11 +22,19 @@ impl ResultWriter for MockWriter {
 
 #[test]
 fn test_calculix_parity_c3d4() {
-    let project = Project::from_jobname("tests/data/C3D4_staticstep", None)
+    let mut project = Project::from_jobname("tests/data/C3D4_staticstep", None)
         .expect("Failed to parse .inp file");
 
-    let num_dofs = project.mesh.nodes.len() * 3;
-    let mut solution_state = SolutionState::new(num_dofs);
+    // The reference results assume no thermal strain initially (T = T_ref = 20.0)
+    project.default_initial_temperature = 20.0;
+
+    let num_nodes = project.mesh.nodes.len();
+    let num_dofs = num_nodes * 3;
+    let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+
+    solution_state
+        .temperatures
+        .fill(project.default_initial_temperature);
     let mut simulation_time = SolverTime::new();
     let writer = MockWriter;
 
@@ -79,11 +87,18 @@ fn test_calculix_parity_c3d4() {
 
 #[test]
 fn test_calculix_parity_2step() {
-    let project = Project::from_jobname("tests/data/C3D4_2staticstep", None)
+    let mut project = Project::from_jobname("tests/data/C3D4_2staticstep", None)
         .expect("Failed to parse .inp file");
 
-    let num_dofs = project.mesh.nodes.len() * 3;
-    let mut solution_state = SolutionState::new(num_dofs);
+    project.default_initial_temperature = 20.0;
+
+    let num_nodes = project.mesh.nodes.len();
+    let num_dofs = num_nodes * 3;
+    let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+
+    solution_state
+        .temperatures
+        .fill(project.default_initial_temperature);
     let mut simulation_time = SolverTime::new();
     let writer = MockWriter;
 
@@ -170,11 +185,18 @@ fn test_calculix_parity_2step() {
 
 #[test]
 fn test_calculix_parity_nlgeom() {
-    let project =
+    let mut project =
         Project::from_jobname("tests/data/NLGEOM_test", None).expect("Failed to parse .inp file");
 
-    let num_dofs = project.mesh.nodes.len() * 3;
-    let mut solution_state = SolutionState::new(num_dofs);
+    project.default_initial_temperature = 20.0;
+
+    let num_nodes = project.mesh.nodes.len();
+    let num_dofs = num_nodes * 3;
+    let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+
+    solution_state
+        .temperatures
+        .fill(project.default_initial_temperature);
     let mut simulation_time = SolverTime::new();
     let writer = MockWriter;
 

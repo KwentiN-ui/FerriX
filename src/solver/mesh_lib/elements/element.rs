@@ -5,6 +5,7 @@
 
 use crate::solver::error::{FerrixError, Result};
 use crate::solver::ids::{ElementId, NodeId};
+use crate::solver::material::Material;
 use crate::solver::mesh_lib::mesh::Mesh;
 use crate::solver::project::Project;
 use nalgebra::{DMatrix, DVector, SMatrix};
@@ -175,8 +176,9 @@ impl Element {
     pub fn compute_internal_force(
         &self,
         mesh: &Mesh,
+        material: &dyn Material,
         u_el: &[f64],
-        d_mat: &DMatrix<f64>,
+        node_temps: &[f64],
         u_conf: Option<&[f64]>,
     ) -> Result<DVector<f64>> {
         match self {
@@ -201,7 +203,7 @@ impl Element {
                 }
 
                 for gp in self.integration_points() {
-                    let (_, dn_local) =
+                    let (n_local, dn_local) =
                         self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
                     let jacobian = &dn_local * node_coords.transpose();
                     let det_j = jacobian.determinant();
@@ -213,14 +215,100 @@ impl Element {
 
                     let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
 
+                    // Interpolate temperature at integration point
+                    let mut t_ip = 0.0;
+                    for i in 0..num_nodes {
+                        t_ip += n_local[i] * node_temps[i];
+                    }
+
+                    let d_mat = material.build_elastic_d_matrix(t_ip)?;
+
                     let u_el_vec = DVector::from_column_slice(u_el);
-                    let strain = &b_mat * u_el_vec;
+                    let mut strain = &b_mat * u_el_vec;
+
+                    // Subtract thermal strain if expansion is defined
+                    if let Some(alpha) = material.thermal_expansion(t_ip) {
+                        let t_ref = material.reference_temperature();
+                        let delta_t = t_ip - t_ref;
+                        strain[0] -= alpha * delta_t;
+                        strain[1] -= alpha * delta_t;
+                        strain[2] -= alpha * delta_t;
+                    }
+
                     let stress = d_mat * &strain;
 
                     f_int.add_assign(&(b_mat.transpose() * stress * weight));
                 }
 
                 Ok(f_int)
+            }
+        }
+    }
+
+    /// Computes the element's thermal force vector.
+    ///
+    /// # Errors
+    /// Returns an error if node coordinates or temperatures are missing.
+    pub fn compute_thermal_force(
+        &self,
+        project: &Project,
+        material: &dyn Material,
+        node_temps: &[f64],
+    ) -> Result<DVector<f64>> {
+        match self {
+            Element::C3D4(_, node_ids) => {
+                let num_nodes = node_ids.len();
+                let mut f_th = DVector::<f64>::zeros(num_nodes * 3);
+
+                let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
+                for (i, &node_id) in node_ids.iter().enumerate() {
+                    let coords = project
+                        .mesh
+                        .nodes
+                        .get(&node_id)
+                        .ok_or(FerrixError::NodeNotFound(node_id))?;
+                    node_coords
+                        .set_column(i, &nalgebra::Vector3::new(coords.x, coords.y, coords.z));
+                }
+
+                for gp in self.integration_points() {
+                    let (n_local, dn_local) =
+                        self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+
+                    // Interpolate temperature at integration point
+                    let mut t_ip = 0.0;
+                    for i in 0..num_nodes {
+                        t_ip += n_local[i] * node_temps[i];
+                    }
+
+                    let Some(alpha) = material.thermal_expansion(t_ip) else {
+                        continue;
+                    };
+                    let t_ref = material.reference_temperature();
+                    let d_mat = material.build_elastic_d_matrix(t_ip)?;
+
+                    let jacobian = &dn_local * node_coords.transpose();
+                    let det_j = jacobian.determinant();
+                    let inv_j = jacobian
+                        .try_inverse()
+                        .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+                    let dn_global = inv_j * dn_local;
+                    let weight = det_j.abs() * gp.weight;
+
+                    let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
+
+                    // Thermal strain vector: [alpha*deltaT, alpha*deltaT, alpha*deltaT, 0, 0, 0]
+                    let delta_t = t_ip - t_ref;
+                    let mut strain_th = DVector::<f64>::zeros(6);
+                    strain_th[0] = alpha * delta_t;
+                    strain_th[1] = alpha * delta_t;
+                    strain_th[2] = alpha * delta_t;
+
+                    let stress_th = d_mat * strain_th;
+                    f_th.add_assign(&(b_mat.transpose() * stress_th * weight));
+                }
+
+                Ok(f_th)
             }
         }
     }
