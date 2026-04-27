@@ -266,7 +266,7 @@ impl StaticStep {
                     ))
                 })?;
             let material = &project.materials[*material_idx];
-            let d_matrix = material.build_elastic_d_matrix();
+            let d_matrix = material.build_elastic_d_matrix(0.0)?;
 
             let mut avg_stress = [0.0; 6];
             let mut avg_strain = [0.0; 6];

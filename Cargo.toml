@@ -32,3 +32,6 @@ too_many_lines = "allow"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[profile.test]
+inherits = "release"

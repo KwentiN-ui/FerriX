@@ -8,7 +8,7 @@ use crate::solver::error::{FerrixError, Result};
 use crate::solver::ids::{ElementId, NodeId};
 use crate::solver::increment::IncrementData;
 use crate::solver::inp::InpFile;
-use crate::solver::material::Material;
+use crate::solver::material::{BaseMaterial, TemperatureDependentLUT};
 use crate::solver::mesh_lib::elements::element::Element;
 use crate::solver::mesh_lib::mesh::Mesh;
 use crate::solver::mesh_lib::node::Node;
@@ -19,6 +19,7 @@ use crate::solver::step::static_step::StaticStep;
 use crate::solver::step::steps::Step;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
 use strum_macros::EnumString;
 
 /// Recognized keywords (cards) in the `.inp` file format.
@@ -59,6 +60,7 @@ pub enum Keyword {
 pub struct Parser<'a> {
     input: &'a InpFile,
     project: Project,
+    materials: Vec<BaseMaterial>,
     current_keyword: Option<Keyword>,
     line_nr: usize,
     // Parser state
@@ -81,6 +83,7 @@ impl<'a> Parser<'a> {
         Self {
             input,
             project: Project::new(),
+            materials: Vec::new(),
             current_keyword: None,
             line_nr: 0,
             element_type: None,
@@ -125,6 +128,11 @@ impl<'a> Parser<'a> {
             step.loads.clone_from(&self.step_loads);
             step.bcs.clone_from(&self.step_bcs);
             self.project.steps.push(Step::StaticStep(step));
+        }
+
+        // Move materials to project
+        for mat in self.materials {
+            self.project.materials.push(Arc::new(mat));
         }
 
         // Post-parsing steps, e.g. building node mappings
@@ -185,10 +193,11 @@ impl<'a> Parser<'a> {
                             line: self.line_nr,
                             message: "Material name not found".into(),
                         })?;
-                    self.project.materials.push(Material {
+                    self.materials.push(BaseMaterial {
                         name: name.to_string(),
                         density: None,
-                        elastic: None,
+                        youngs_modulus: None,
+                        poisson_ratio: None,
                     });
                 }
                 Keyword::SolidSection => {
@@ -210,7 +219,6 @@ impl<'a> Parser<'a> {
                         })?;
 
                     let material_index = self
-                        .project
                         .materials
                         .iter()
                         .position(|m| m.name == material_name)
@@ -454,6 +462,7 @@ impl<'a> Parser<'a> {
                 Keyword::Nset => self.parse_nset(line),
                 Keyword::Elset => self.parse_elset(line),
                 Keyword::Elastic => self.parse_elastic(line)?,
+                Keyword::Density => self.parse_density(line)?,
                 Keyword::NodeFile => {
                     self.project
                         .nodal_output
@@ -563,7 +572,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_elastic(&mut self, line: &str) -> Result<()> {
-        if let Some(material) = self.project.materials.last_mut() {
+        if let Some(material) = self.materials.last_mut() {
             let parts: Vec<f64> = line
                 .split(',')
                 .map(|s| {
@@ -573,8 +582,52 @@ impl<'a> Parser<'a> {
                     })
                 })
                 .collect::<Result<Vec<f64>>>()?;
+
             if parts.len() >= 2 {
-                material.elastic = Some((parts[0], parts[1]));
+                let e = parts[0];
+                let nu = parts[1];
+                let temp = if parts.len() >= 3 { parts[2] } else { 0.0 };
+
+                if let Some(lut) = &mut material.youngs_modulus {
+                    lut.data.push((temp, e));
+                    lut.data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                } else {
+                    material.youngs_modulus = Some(TemperatureDependentLUT::new(vec![(temp, e)]));
+                }
+
+                if let Some(lut) = &mut material.poisson_ratio {
+                    lut.data.push((temp, nu));
+                    lut.data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                } else {
+                    material.poisson_ratio = Some(TemperatureDependentLUT::new(vec![(temp, nu)]));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_density(&mut self, line: &str) -> Result<()> {
+        if let Some(material) = self.materials.last_mut() {
+            let parts: Vec<f64> = line
+                .split(',')
+                .map(|s| {
+                    s.trim().parse().map_err(|e| FerrixError::ParseError {
+                        line: self.line_nr,
+                        message: format!("Invalid density value: {e}"),
+                    })
+                })
+                .collect::<Result<Vec<f64>>>()?;
+
+            if !parts.is_empty() {
+                let rho = parts[0];
+                let temp = if parts.len() >= 2 { parts[1] } else { 0.0 };
+
+                if let Some(lut) = &mut material.density {
+                    lut.data.push((temp, rho));
+                    lut.data.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                } else {
+                    material.density = Some(TemperatureDependentLUT::new(vec![(temp, rho)]));
+                }
             }
         }
         Ok(())

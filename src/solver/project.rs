@@ -12,16 +12,15 @@ use std::{
     path::PathBuf,
 };
 
-use crate::solver::{
-    inp::InpFile,
-    material::Material,
-    mesh_lib::mesh::Mesh,
-    parser::Parser,
-    step::{
-        boundary_conds::{BoundaryCondition, Load},
-        steps::Step,
-    },
+use crate::solver::inp::InpFile;
+use crate::solver::material::Material;
+use crate::solver::mesh_lib::mesh::Mesh;
+use crate::solver::parser::Parser;
+use crate::solver::step::{
+    boundary_conds::{BoundaryCondition, Load},
+    steps::Step,
 };
+use std::sync::Arc;
 
 /// Represents the central data structure for a single FEA problem.
 ///
@@ -39,7 +38,7 @@ pub struct Project {
     /// The preprocessed content of the input file, stored for reference.
     pub input: Box<InpFile>,
     /// A list of all materials defined in the model.
-    pub materials: Vec<Material>,
+    pub materials: Vec<Arc<dyn Material>>,
     /// A map that links each `ElementId` to its corresponding material's index in the `materials` vector.
     pub element_materials: HashMap<ElementId, usize>,
     /// A collection of all concentrated loads (*CLOAD) defined before the first step.

@@ -52,7 +52,7 @@ impl Assembler {
                 })?;
             let material = &project.materials[*material_index];
 
-            let d_matrix = material.build_elastic_d_matrix();
+            let d_matrix = material.build_elastic_d_matrix(0.0)?;
 
             let node_ids = element.get_node_ids();
 
@@ -141,7 +141,7 @@ impl Assembler {
                     ))
                 })?;
             let material = &project.materials[*material_index];
-            let d_matrix = material.build_elastic_d_matrix();
+            let d_matrix = material.build_elastic_d_matrix(0.0)?;
 
             let node_ids = element.get_node_ids();
             let mut u_el = Vec::with_capacity(node_ids.len() * 3);
