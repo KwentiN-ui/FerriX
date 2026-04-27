@@ -276,8 +276,6 @@ impl StaticStep {
         let mut nodal_strain = NodalResult::new("E", FieldType::Strain);
         let mut node_element_count: HashMap<NodeId, usize> = HashMap::new();
 
-        let empty_state = MaterialPointState::default();
-
         for element in project.mesh.elements.values() {
             let elem_id = element.get_id();
             let node_ids = element.get_node_ids();
@@ -301,32 +299,31 @@ impl StaticStep {
             let t_avg = t_curr_el.iter().sum::<f64>() / t_curr_el.len() as f64;
             let d_matrix = material.build_elastic_d_matrix(t_avg)?;
 
-            let mut avg_stress = [0.0; 6];
-            let mut avg_strain = [0.0; 6];
+            let node_local_coords = element.node_local_coords();
             let integration_points = element.integration_points();
             let num_ips = integration_points.len();
 
-            for (ip_idx, ip) in integration_points.iter().enumerate() {
-                // Calculate mechanical strain
-                let (strain_total, _) =
-                    element.calculate_stress_strain_at_ip(&d_matrix, &u_el, &project.mesh, ip)?;
+            for (i, &node_id) in node_ids.iter().enumerate() {
+                let local_pos = node_local_coords[i];
+                let (strain_total, _) = element.calculate_stress_strain_at_local_coords(
+                    &d_matrix,
+                    &u_el,
+                    &project.mesh,
+                    local_pos[0],
+                    local_pos[1],
+                    local_pos[2],
+                )?;
 
-                let mut strain_mech = strain_total.clone();
-                let (n_local, _) =
-                    element.shape_functions(ip.coords[0], ip.coords[1], ip.coords[2]);
-                let mut t_curr_ip = 0.0;
-                let mut t_init_ip = 0.0;
-                for i in 0..node_ids.len() {
-                    t_curr_ip += n_local[i] * t_curr_el[i];
-                    t_init_ip += n_local[i] * t_init_el[i];
-                }
+                let mut strain_mech = strain_total;
+                let t_curr_node = t_curr_el[i];
+                let t_init_node = t_init_el[i];
 
-                if let Some(alpha) = material.thermal_expansion(t_curr_ip) {
+                if let Some(alpha) = material.thermal_expansion(t_curr_node) {
                     let t_ref = material.reference_temperature();
-                    let th_strain_curr = alpha * (t_curr_ip - t_ref);
+                    let th_strain_curr = alpha * (t_curr_node - t_ref);
 
-                    let alpha_init = material.thermal_expansion(t_init_ip).unwrap_or(alpha);
-                    let th_strain_init = alpha_init * (t_init_ip - t_ref);
+                    let alpha_init = material.thermal_expansion(t_init_node).unwrap_or(alpha);
+                    let th_strain_init = alpha_init * (t_init_node - t_ref);
 
                     let delta_th_strain = th_strain_curr - th_strain_init;
 
@@ -335,36 +332,33 @@ impl StaticStep {
                     strain_mech[2] -= delta_th_strain;
                 }
 
-                // Use update_state to get correct stress for possibly non-linear material
-                let state_old = solution_state
-                    .material_states
-                    .get(&elem_id)
-                    .map_or(&empty_state, |m| &m[ip_idx]);
-                // We use dtime=0 here for results calculation as it's a post-processing step
-                // (though for some laws it might matter, but usually dtime is only for rate-dependent)
-                let (_, stress, _) =
-                    material.update_state(t_curr_ip, &strain_mech, state_old, 0.0)?;
-
-                for i in 0..6 {
-                    avg_stress[i] += stress[i];
-                    avg_strain[i] += strain_mech[i];
+                let mut avg_state = MaterialPointState::default();
+                let num_sdvs = material.num_state_variables();
+                if num_sdvs > 0 {
+                    avg_state.variables = vec![0.0; num_sdvs];
+                    let elem_state = solution_state.material_states.get(&elem_id);
+                    if let Some(es) = elem_state {
+                        for ip_idx in 0..num_ips {
+                            for sdv_idx in 0..num_sdvs {
+                                avg_state[sdv_idx] += es[ip_idx][sdv_idx] / num_ips as f64;
+                            }
+                        }
+                    }
                 }
-            }
 
-            for i in 0..6 {
-                avg_stress[i] /= num_ips as f64;
-                avg_strain[i] /= num_ips as f64;
+                let (_, stress, _) =
+                    material.update_state(t_curr_node, &strain_mech, &avg_state, 0.0)?;
+
+                let current_stress = nodal_stress.data.entry(node_id).or_insert(vec![0.0; 6]);
+                let current_strain = nodal_strain.data.entry(node_id).or_insert(vec![0.0; 6]);
+                for j in 0..6 {
+                    current_stress[j] += stress[j];
+                    current_strain[j] += strain_mech[j];
+                }
             }
 
             for &node_id in node_ids {
-                let count = node_element_count.entry(node_id).or_insert(0);
-                let current_stress = nodal_stress.data.entry(node_id).or_insert(vec![0.0; 6]);
-                let current_strain = nodal_strain.data.entry(node_id).or_insert(vec![0.0; 6]);
-                for i in 0..6 {
-                    current_stress[i] += avg_stress[i];
-                    current_strain[i] += avg_strain[i];
-                }
-                *count += 1;
+                *node_element_count.entry(node_id).or_insert(0) += 1;
             }
         }
 

@@ -13,6 +13,7 @@ use std::ops::AddAssign;
 use std::str::FromStr;
 
 use crate::solver::mesh_lib::elements::c3d4::{c3d4_gauss, shape_func_c3d4};
+use crate::solver::mesh_lib::elements::c3d20::{c3d20_gauss, shape_func_c3d20};
 use strum_macros::{EnumDiscriminants, EnumString};
 
 /// Supported finite element types.
@@ -22,6 +23,8 @@ use strum_macros::{EnumDiscriminants, EnumString};
 pub enum Element {
     /// A 4-node linear tetrahedron (First-order 3D element).
     C3D4(ElementId, [NodeId; 4]),
+    /// A 20-node quadratic brick (Second-order 3D element).
+    C3D20(ElementId, [NodeId; 20]),
 }
 
 impl Element {
@@ -83,6 +86,14 @@ impl Element {
                     })?;
                 Ok(Element::C3D4(id, nodes_arr))
             }
+            ElementType::C3D20 => {
+                let nodes_arr: [NodeId; 20] =
+                    nodes.try_into().map_err(|_| FerrixError::ParseError {
+                        line: 0,
+                        message: "Wrong node count for C3D20".into(),
+                    })?;
+                Ok(Element::C3D20(id, nodes_arr))
+            }
         }
     }
 
@@ -90,7 +101,7 @@ impl Element {
     #[must_use]
     pub fn get_id(&self) -> ElementId {
         match self {
-            Element::C3D4(id, _) => *id,
+            Element::C3D4(id, _) | Element::C3D20(id, _) => *id,
         }
     }
 
@@ -99,6 +110,7 @@ impl Element {
     pub fn get_node_ids(&self) -> &[NodeId] {
         match self {
             Element::C3D4(_, n) => n,
+            Element::C3D20(_, n) => n,
         }
     }
 
@@ -107,6 +119,7 @@ impl Element {
     pub fn integration_points(&self) -> Vec<GaussPoint> {
         match self {
             Element::C3D4(..) => c3d4_gauss(),
+            Element::C3D20(..) => c3d20_gauss(),
         }
     }
 
@@ -121,6 +134,48 @@ impl Element {
                     DMatrix::from_column_slice(3, 4, dn.as_slice()),
                 )
             }
+            Element::C3D20(..) => {
+                let (n, dn) = shape_func_c3d20(xi, eta, zeta);
+                (
+                    DVector::from_column_slice(n.as_slice()),
+                    DMatrix::from_column_slice(3, 20, dn.as_slice()),
+                )
+            }
+        }
+    }
+
+    /// Returns the local coordinates of the nodes.
+    #[must_use]
+    pub fn node_local_coords(&self) -> Vec<[f64; 3]> {
+        match self {
+            Element::C3D4(..) => vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            Element::C3D20(..) => vec![
+                [-1.0, -1.0, -1.0],
+                [1.0, -1.0, -1.0],
+                [1.0, 1.0, -1.0],
+                [-1.0, 1.0, -1.0],
+                [-1.0, -1.0, 1.0],
+                [1.0, -1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [-1.0, 1.0, 1.0],
+                [0.0, -1.0, -1.0],
+                [1.0, 0.0, -1.0],
+                [0.0, 1.0, -1.0],
+                [-1.0, 0.0, -1.0],
+                [0.0, -1.0, 1.0],
+                [1.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0],
+                [-1.0, 0.0, 1.0],
+                [-1.0, -1.0, 0.0],
+                [1.0, -1.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [-1.0, 1.0, 0.0],
+            ],
         }
     }
 
@@ -164,6 +219,33 @@ impl Element {
 
                 Ok(DMatrix::from_row_slice(12, 12, k_static.as_slice()))
             }
+            Element::C3D20(_, node_ids) => {
+                let mut coords = SMatrix::<f64, 3, 20>::zeros();
+                for (i, &node_id) in node_ids.iter().enumerate() {
+                    let c = project
+                        .mesh
+                        .nodes
+                        .get(&node_id)
+                        .ok_or(FerrixError::NodeNotFound(node_id))?;
+
+                    let mut pos = nalgebra::Vector3::new(c.x, c.y, c.z);
+                    if let Some(u) = u_el {
+                        pos[0] += u[i * 3];
+                        pos[1] += u[i * 3 + 1];
+                        pos[2] += u[i * 3 + 2];
+                    }
+                    coords.set_column(i, &pos);
+                }
+
+                let k_static = compute_generic_stiffness::<20, 60>(
+                    &d_static,
+                    &coords,
+                    &self.integration_points(),
+                    shape_func_c3d20_static,
+                )?;
+
+                Ok(DMatrix::from_row_slice(60, 60, k_static.as_slice()))
+            }
         }
     }
 
@@ -182,101 +264,97 @@ impl Element {
         material_states_old: Option<&ElementMaterialState>,
         dtime: f64,
     ) -> Result<(DMatrix<f64>, Option<ElementMaterialState>)> {
-        match self {
-            Element::C3D4(_, node_ids) => {
-                let num_nodes = node_ids.len();
-                let num_dofs = num_nodes * 3;
-                let mut k_el = DMatrix::<f64>::zeros(num_dofs, num_dofs);
-                let mut updated_states = Vec::new();
+        let node_ids = self.get_node_ids();
+        let num_nodes = node_ids.len();
+        let num_dofs = num_nodes * 3;
+        let mut k_el = DMatrix::<f64>::zeros(num_dofs, num_dofs);
+        let mut updated_states = Vec::new();
 
-                let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
-                for (i, &node_id) in node_ids.iter().enumerate() {
-                    let coords = project
-                        .mesh
-                        .nodes
-                        .get(&node_id)
-                        .ok_or(FerrixError::NodeNotFound(node_id))?;
+        let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
+        for (i, &node_id) in node_ids.iter().enumerate() {
+            let coords = project
+                .mesh
+                .nodes
+                .get(&node_id)
+                .ok_or(FerrixError::NodeNotFound(node_id))?;
 
-                    let mut pos = nalgebra::Vector3::new(coords.x, coords.y, coords.z);
-                    if let Some(u) = u_el {
-                        pos[0] += u[i * 3];
-                        pos[1] += u[i * 3 + 1];
-                        pos[2] += u[i * 3 + 2];
-                    }
-                    node_coords.set_column(i, &pos);
-                }
-
-                let empty_state = MaterialPointState::default();
-
-                for (ip_idx, gp) in self.integration_points().iter().enumerate() {
-                    let (n_local, dn_local) =
-                        self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
-                    let jacobian = &dn_local * node_coords.transpose();
-                    let det_j = jacobian.determinant();
-                    let inv_j = jacobian
-                        .try_inverse()
-                        .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
-                    let dn_global = inv_j * dn_local;
-                    let weight = det_j.abs() * gp.weight;
-
-                    let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
-
-                    let t_curr = node_temps_current.map_or(0.0, |temps| {
-                        let mut t = 0.0;
-                        for i in 0..num_nodes {
-                            t += n_local[i] * temps[i];
-                        }
-                        t
-                    });
-
-                    let t_init = node_temps_initial.map_or(t_curr, |temps| {
-                        let mut t = 0.0;
-                        for i in 0..num_nodes {
-                            t += n_local[i] * temps[i];
-                        }
-                        t
-                    });
-
-                    let u_el_vec =
-                        u_el.map_or(DVector::zeros(num_dofs), DVector::from_column_slice);
-                    let mut strain = &b_mat * u_el_vec;
-
-                    // Subtract thermal strain delta: epsilon_th(T_curr) - epsilon_th(T_init)
-                    if let Some(alpha_curr) = material.thermal_expansion(t_curr) {
-                        let t_ref = material.reference_temperature();
-                        let th_strain_curr = alpha_curr * (t_curr - t_ref);
-
-                        let alpha_init = material.thermal_expansion(t_init).unwrap_or(alpha_curr);
-                        let th_strain_init = alpha_init * (t_init - t_ref);
-
-                        let delta_th_strain = th_strain_curr - th_strain_init;
-
-                        strain[0] -= delta_th_strain;
-                        strain[1] -= delta_th_strain;
-                        strain[2] -= delta_th_strain;
-                    }
-
-                    let state_old = material_states_old.map_or(&empty_state, |m| &m[ip_idx]);
-                    let (d_tangent, _stress, state_new) =
-                        material.update_state(t_curr, &strain, state_old, dtime)?;
-                    updated_states.push(state_new);
-
-                    k_el.add_assign(&(b_mat.transpose() * d_tangent * b_mat * weight));
-                }
-
-                let has_sdvs = material.num_state_variables() > 0;
-                Ok((
-                    k_el,
-                    if has_sdvs {
-                        Some(ElementMaterialState {
-                            ip_states: updated_states,
-                        })
-                    } else {
-                        None
-                    },
-                ))
+            let mut pos = nalgebra::Vector3::new(coords.x, coords.y, coords.z);
+            if let Some(u) = u_el {
+                pos[0] += u[i * 3];
+                pos[1] += u[i * 3 + 1];
+                pos[2] += u[i * 3 + 2];
             }
+            node_coords.set_column(i, &pos);
         }
+
+        let empty_state = MaterialPointState::default();
+
+        for (ip_idx, gp) in self.integration_points().iter().enumerate() {
+            let (n_local, dn_local) =
+                self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+            let jacobian = &dn_local * node_coords.transpose();
+            let det_j = jacobian.determinant();
+            let inv_j = jacobian
+                .try_inverse()
+                .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+            let dn_global = inv_j * dn_local;
+            let weight = det_j.abs() * gp.weight;
+
+            let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
+
+            let t_curr = node_temps_current.map_or(0.0, |temps| {
+                let mut t = 0.0;
+                for i in 0..num_nodes {
+                    t += n_local[i] * temps[i];
+                }
+                t
+            });
+
+            let t_init = node_temps_initial.map_or(t_curr, |temps| {
+                let mut t = 0.0;
+                for i in 0..num_nodes {
+                    t += n_local[i] * temps[i];
+                }
+                t
+            });
+
+            let u_el_vec = u_el.map_or(DVector::zeros(num_dofs), DVector::from_column_slice);
+            let mut strain = &b_mat * u_el_vec;
+
+            // Subtract thermal strain delta: epsilon_th(T_curr) - epsilon_th(T_init)
+            if let Some(alpha_curr) = material.thermal_expansion(t_curr) {
+                let t_ref = material.reference_temperature();
+                let th_strain_curr = alpha_curr * (t_curr - t_ref);
+
+                let alpha_init = material.thermal_expansion(t_init).unwrap_or(alpha_curr);
+                let th_strain_init = alpha_init * (t_init - t_ref);
+
+                let delta_th_strain = th_strain_curr - th_strain_init;
+
+                strain[0] -= delta_th_strain;
+                strain[1] -= delta_th_strain;
+                strain[2] -= delta_th_strain;
+            }
+
+            let state_old = material_states_old.map_or(&empty_state, |m| &m[ip_idx]);
+            let (d_tangent, _stress, state_new) =
+                material.update_state(t_curr, &strain, state_old, dtime)?;
+            updated_states.push(state_new);
+
+            k_el.add_assign(&(b_mat.transpose() * d_tangent * b_mat * weight));
+        }
+
+        let has_sdvs = material.num_state_variables() > 0;
+        Ok((
+            k_el,
+            if has_sdvs {
+                Some(ElementMaterialState {
+                    ip_states: updated_states,
+                })
+            } else {
+                None
+            },
+        ))
     }
 
     /// Computes the element's internal force vector.
@@ -322,92 +400,90 @@ impl Element {
         dtime: f64,
         u_conf: Option<&[f64]>,
     ) -> Result<(DVector<f64>, Option<ElementMaterialState>)> {
-        match self {
-            Element::C3D4(_, node_ids) => {
-                let num_nodes = node_ids.len();
-                let mut f_int = DVector::<f64>::zeros(num_nodes * 3);
-                let mut updated_states = Vec::new();
+        let node_ids = self.get_node_ids();
+        let num_nodes = node_ids.len();
+        let num_dofs = num_nodes * 3;
+        let mut f_int = DVector::<f64>::zeros(num_dofs);
+        let mut updated_states = Vec::new();
 
-                let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
-                for (i, &node_id) in node_ids.iter().enumerate() {
-                    let coords = mesh
-                        .nodes
-                        .get(&node_id)
-                        .ok_or(FerrixError::NodeNotFound(node_id))?;
+        let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
+        for (i, &node_id) in node_ids.iter().enumerate() {
+            let coords = mesh
+                .nodes
+                .get(&node_id)
+                .ok_or(FerrixError::NodeNotFound(node_id))?;
 
-                    let mut pos = nalgebra::Vector3::new(coords.x, coords.y, coords.z);
-                    if let Some(u) = u_conf {
-                        pos[0] += u[i * 3];
-                        pos[1] += u[i * 3 + 1];
-                        pos[2] += u[i * 3 + 2];
-                    }
-                    node_coords.set_column(i, &pos);
-                }
-
-                let empty_state = MaterialPointState::default();
-
-                for (ip_idx, gp) in self.integration_points().iter().enumerate() {
-                    let (n_local, dn_local) =
-                        self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
-                    let jacobian = &dn_local * node_coords.transpose();
-                    let det_j = jacobian.determinant();
-                    let inv_j = jacobian
-                        .try_inverse()
-                        .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
-                    let dn_global = inv_j * dn_local;
-                    let weight = det_j.abs() * gp.weight;
-
-                    let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
-
-                    // Interpolate temperatures at integration point
-                    let mut t_curr = 0.0;
-                    let mut t_init = 0.0;
-                    for i in 0..num_nodes {
-                        t_curr += n_local[i] * node_temps_current[i];
-                        t_init += n_local[i] * node_temps_initial[i];
-                    }
-
-                    let _d_mat = material.build_elastic_d_matrix(t_curr)?;
-
-                    let u_el_vec = DVector::from_column_slice(u_el);
-                    let mut strain = &b_mat * u_el_vec;
-
-                    // Subtract thermal strain delta: epsilon_th(T_curr) - epsilon_th(T_init)
-                    if let Some(alpha_curr) = material.thermal_expansion(t_curr) {
-                        let t_ref = material.reference_temperature();
-                        let th_strain_curr = alpha_curr * (t_curr - t_ref);
-
-                        let alpha_init = material.thermal_expansion(t_init).unwrap_or(alpha_curr);
-                        let th_strain_init = alpha_init * (t_init - t_ref);
-
-                        let delta_th_strain = th_strain_curr - th_strain_init;
-
-                        strain[0] -= delta_th_strain;
-                        strain[1] -= delta_th_strain;
-                        strain[2] -= delta_th_strain;
-                    }
-
-                    let state_old = material_states_old.map_or(&empty_state, |m| &m[ip_idx]);
-                    let (_d_tangent, stress, state_new) =
-                        material.update_state(t_curr, &strain, state_old, dtime)?;
-                    updated_states.push(state_new);
-
-                    f_int.add_assign(&(b_mat.transpose() * stress * weight));
-                }
-
-                let has_sdvs = material.num_state_variables() > 0;
-                Ok((
-                    f_int,
-                    if has_sdvs {
-                        Some(ElementMaterialState {
-                            ip_states: updated_states,
-                        })
-                    } else {
-                        None
-                    },
-                ))
+            let mut pos = nalgebra::Vector3::new(coords.x, coords.y, coords.z);
+            if let Some(u) = u_conf {
+                pos[0] += u[i * 3];
+                pos[1] += u[i * 3 + 1];
+                pos[2] += u[i * 3 + 2];
             }
+            node_coords.set_column(i, &pos);
         }
+
+        let empty_state = MaterialPointState::default();
+
+        for (ip_idx, gp) in self.integration_points().iter().enumerate() {
+            let (n_local, dn_local) =
+                self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+            let jacobian = &dn_local * node_coords.transpose();
+            let det_j = jacobian.determinant();
+            let inv_j = jacobian
+                .try_inverse()
+                .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+            let dn_global = inv_j * dn_local;
+            let weight = det_j.abs() * gp.weight;
+
+            let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
+
+            // Interpolate temperatures at integration point
+            let mut t_curr = 0.0;
+            let mut t_init = 0.0;
+            for i in 0..num_nodes {
+                t_curr += n_local[i] * node_temps_current[i];
+                t_init += n_local[i] * node_temps_initial[i];
+            }
+
+            let _d_mat = material.build_elastic_d_matrix(t_curr)?;
+
+            let u_el_vec = DVector::from_column_slice(u_el);
+            let mut strain = &b_mat * u_el_vec;
+
+            // Subtract thermal strain delta: epsilon_th(T_curr) - epsilon_th(T_init)
+            if let Some(alpha_curr) = material.thermal_expansion(t_curr) {
+                let t_ref = material.reference_temperature();
+                let th_strain_curr = alpha_curr * (t_curr - t_ref);
+
+                let alpha_init = material.thermal_expansion(t_init).unwrap_or(alpha_curr);
+                let th_strain_init = alpha_init * (t_init - t_ref);
+
+                let delta_th_strain = th_strain_curr - th_strain_init;
+
+                strain[0] -= delta_th_strain;
+                strain[1] -= delta_th_strain;
+                strain[2] -= delta_th_strain;
+            }
+
+            let state_old = material_states_old.map_or(&empty_state, |m| &m[ip_idx]);
+            let (_d_tangent, stress, state_new) =
+                material.update_state(t_curr, &strain, state_old, dtime)?;
+            updated_states.push(state_new);
+
+            f_int.add_assign(&(b_mat.transpose() * stress * weight));
+        }
+
+        let has_sdvs = material.num_state_variables() > 0;
+        Ok((
+            f_int,
+            if has_sdvs {
+                Some(ElementMaterialState {
+                    ip_states: updated_states,
+                })
+            } else {
+                None
+            },
+        ))
     }
 
     /// Computes the element's thermal force vector.
@@ -421,82 +497,80 @@ impl Element {
         node_temps_initial: &[f64],
         node_temps_current: &[f64],
     ) -> Result<DVector<f64>> {
-        match self {
-            Element::C3D4(_, node_ids) => {
-                let num_nodes = node_ids.len();
-                let mut f_th = DVector::<f64>::zeros(num_nodes * 3);
+        let node_ids = self.get_node_ids();
+        let num_nodes = node_ids.len();
+        let mut f_th = DVector::<f64>::zeros(num_nodes * 3);
 
-                let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
-                for (i, &node_id) in node_ids.iter().enumerate() {
-                    let coords = project
-                        .mesh
-                        .nodes
-                        .get(&node_id)
-                        .ok_or(FerrixError::NodeNotFound(node_id))?;
-                    node_coords
-                        .set_column(i, &nalgebra::Vector3::new(coords.x, coords.y, coords.z));
-                }
-
-                for gp in self.integration_points() {
-                    let (n_local, dn_local) =
-                        self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
-
-                    // Interpolate temperatures at integration point
-                    let mut t_curr = 0.0;
-                    let mut t_init = 0.0;
-                    for i in 0..num_nodes {
-                        t_curr += n_local[i] * node_temps_current[i];
-                        t_init += n_local[i] * node_temps_initial[i];
-                    }
-
-                    let Some(alpha_curr) = material.thermal_expansion(t_curr) else {
-                        continue;
-                    };
-                    let t_ref = material.reference_temperature();
-                    let th_strain_curr = alpha_curr * (t_curr - t_ref);
-
-                    let alpha_init = material.thermal_expansion(t_init).unwrap_or(alpha_curr);
-                    let th_strain_init = alpha_init * (t_init - t_ref);
-
-                    let delta_th_strain = th_strain_curr - th_strain_init;
-
-                    let d_mat = material.build_elastic_d_matrix(t_curr)?;
-
-                    let jacobian = &dn_local * node_coords.transpose();
-                    let det_j = jacobian.determinant();
-                    let inv_j = jacobian
-                        .try_inverse()
-                        .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
-                    let dn_global = inv_j * dn_local;
-                    let weight = det_j.abs() * gp.weight;
-
-                    let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
-
-                    // Thermal strain delta vector
-                    let mut strain_th = DVector::<f64>::zeros(6);
-                    strain_th[0] = delta_th_strain;
-                    strain_th[1] = delta_th_strain;
-                    strain_th[2] = delta_th_strain;
-
-                    let stress_th = d_mat * strain_th;
-                    f_th.add_assign(&(b_mat.transpose() * stress_th * weight));
-                }
-
-                Ok(f_th)
-            }
+        let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
+        for (i, &node_id) in node_ids.iter().enumerate() {
+            let coords = project
+                .mesh
+                .nodes
+                .get(&node_id)
+                .ok_or(FerrixError::NodeNotFound(node_id))?;
+            node_coords.set_column(i, &nalgebra::Vector3::new(coords.x, coords.y, coords.z));
         }
+
+        for gp in self.integration_points() {
+            let (n_local, dn_local) =
+                self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+
+            // Interpolate temperatures at integration point
+            let mut t_curr = 0.0;
+            let mut t_init = 0.0;
+            for i in 0..num_nodes {
+                t_curr += n_local[i] * node_temps_current[i];
+                t_init += n_local[i] * node_temps_initial[i];
+            }
+
+            let Some(alpha_curr) = material.thermal_expansion(t_curr) else {
+                continue;
+            };
+            let t_ref = material.reference_temperature();
+            let th_strain_curr = alpha_curr * (t_curr - t_ref);
+
+            let alpha_init = material.thermal_expansion(t_init).unwrap_or(alpha_curr);
+            let th_strain_init = alpha_init * (t_init - t_ref);
+
+            let delta_th_strain = th_strain_curr - th_strain_init;
+
+            let d_mat = material.build_elastic_d_matrix(t_curr)?;
+
+            let jacobian = &dn_local * node_coords.transpose();
+            let det_j = jacobian.determinant();
+            let inv_j = jacobian
+                .try_inverse()
+                .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+            let dn_global = inv_j * dn_local;
+            let weight = det_j.abs() * gp.weight;
+
+            let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
+
+            // Thermal strain delta vector
+            let mut strain_th = DVector::<f64>::zeros(6);
+            strain_th[0] = delta_th_strain;
+            strain_th[1] = delta_th_strain;
+            strain_th[2] = delta_th_strain;
+
+            let stress_th = d_mat * strain_th;
+            f_th.add_assign(&(b_mat.transpose() * stress_th * weight));
+        }
+
+        Ok(f_th)
     }
 
-    /// Calculates stress and strain vectors at a specific integration point.
+    /// Calculates stress and strain vectors at a specific local coordinates.
     ///
     /// # Errors
     /// Returns an error if numerical errors occur during Jacobian inversion.
-    pub fn calculate_stress_strain_at_ip(
+    pub fn calculate_stress_strain_at_local_coords(
         &self,
         d_mat: &DMatrix<f64>,
         u_el: &[f64],
         mesh: &Mesh,
-        ip_coords: &GaussPoint,
+        xi: f64,
+        eta: f64,
+        zeta: f64,
     ) -> Result<(DVector<f64>, DVector<f64>)> {
         let node_ids = self.get_node_ids();
         let num_nodes = node_ids.len();
@@ -512,11 +586,7 @@ impl Element {
             node_coords[(2, i)] = coords.z;
         }
 
-        let (_, dn_local) = self.shape_functions(
-            ip_coords.coords[0],
-            ip_coords.coords[1],
-            ip_coords.coords[2],
-        );
+        let (_, dn_local) = self.shape_functions(xi, eta, zeta);
 
         let jacobian = &dn_local * node_coords.transpose();
         let inv_j = jacobian
@@ -532,10 +602,36 @@ impl Element {
 
         Ok((strain, stress))
     }
+
+    /// Calculates stress and strain vectors at a specific integration point.
+    ///
+    /// # Errors
+    /// Returns an error if numerical errors occur during Jacobian inversion.
+    pub fn calculate_stress_strain_at_ip(
+        &self,
+        d_mat: &DMatrix<f64>,
+        u_el: &[f64],
+        mesh: &Mesh,
+        ip_coords: &GaussPoint,
+    ) -> Result<(DVector<f64>, DVector<f64>)> {
+        self.calculate_stress_strain_at_local_coords(
+            d_mat,
+            u_el,
+            mesh,
+            ip_coords.coords[0],
+            ip_coords.coords[1],
+            ip_coords.coords[2],
+        )
+    }
 }
 
 fn shape_func_c3d4_static(xi: f64, eta: f64, zeta: f64) -> SMatrix<f64, 3, 4> {
     let (_, dn) = shape_func_c3d4(xi, eta, zeta);
+    dn
+}
+
+fn shape_func_c3d20_static(xi: f64, eta: f64, zeta: f64) -> SMatrix<f64, 3, 20> {
+    let (_, dn) = shape_func_c3d20(xi, eta, zeta);
     dn
 }
 

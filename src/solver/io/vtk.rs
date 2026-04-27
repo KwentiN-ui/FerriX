@@ -119,6 +119,46 @@ impl ResultWriter for VtkWriter {
                         list_size += 5;
                     }
                 }
+                Element::C3D20(_, nodes) => {
+                    let mut indices = Vec::with_capacity(20);
+                    let mut all_found = true;
+                    for &node_id in nodes {
+                        if let Some(idx) = mesh.get_index_for_node_id(node_id) {
+                            indices.push(idx);
+                        } else {
+                            all_found = false;
+                            break;
+                        }
+                    }
+                    if all_found {
+                        let line = format!(
+                            "20 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                            indices[0],
+                            indices[1],
+                            indices[2],
+                            indices[3],
+                            indices[4],
+                            indices[5],
+                            indices[6],
+                            indices[7],
+                            indices[8],
+                            indices[9],
+                            indices[10],
+                            indices[11],
+                            indices[12],
+                            indices[13],
+                            indices[14],
+                            indices[15],
+                            indices[16],
+                            indices[17],
+                            indices[18],
+                            indices[19]
+                        );
+                        cell_data.push(line);
+                        cell_types.push(25); // VTK_QUADRATIC_HEXAHEDRON
+                        list_size += 21;
+                    }
+                }
             }
         }
 
