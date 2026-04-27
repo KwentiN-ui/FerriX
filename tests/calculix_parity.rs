@@ -1,0 +1,333 @@
+use ferrix::solver::{
+    ids::NodeId, io::writer::ResultWriter, project::Project, results::IncResult,
+    state::SolutionState, time::SolverTime,
+};
+
+struct MockWriter;
+impl ResultWriter for MockWriter {
+    fn init(&self) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+    fn write_increment(
+        &self,
+        _res: &IncResult,
+        _timer: &SolverTime,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+    fn finish(&self) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_calculix_parity_c3d4() {
+    let mut project = Project::from_jobname("tests/data/C3D4_staticstep", None)
+        .expect("Failed to parse .inp file");
+
+    // The reference results assume no thermal strain initially (T = T_ref = 20.0)
+    project.default_initial_temperature = 20.0;
+
+    let num_nodes = project.mesh.nodes.len();
+    let num_dofs = num_nodes * 3;
+    let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+    solution_state.initialize(&project);
+
+    let mut simulation_time = SolverTime::new();
+    let writer = MockWriter;
+
+    for (i, step) in project.steps.iter().enumerate() {
+        let step_id = i + 1;
+        step.solve(
+            step_id,
+            &project,
+            &mut solution_state,
+            &writer,
+            &mut simulation_time,
+        )
+        .expect("Step failed");
+    }
+
+    // Node 17 Reference from CalculiX .dat file:
+    // 17  9.356107E-06 -1.313901E-04  1.719218E-03
+    let node_id = NodeId(17);
+    let idx = project
+        .mesh
+        .get_index_for_node_id(node_id)
+        .expect("Node 17 not found");
+
+    let ux = solution_state.displacements[idx * 3];
+    let uy = solution_state.displacements[idx * 3 + 1];
+    let uz = solution_state.displacements[idx * 3 + 2];
+
+    println!("Ferrix results for Node 17: ux={ux:.6e}, uy={uy:.6e}, uz={uz:.6e}");
+
+    let ref_ux = 9.356_107E-06;
+    let ref_uy = -1.313_901E-04;
+    let ref_uz = 1.719_218E-03;
+
+    // We expect some difference due to solver precision and penalty method
+    let tolerance = 1e-6;
+
+    assert!(
+        (ux - ref_ux).abs() < tolerance,
+        "ux mismatch: ferrix={ux}, ref={ref_ux}"
+    );
+    assert!(
+        (uy - ref_uy).abs() < tolerance,
+        "uy mismatch: ferrix={uy}, ref={ref_uy}"
+    );
+    assert!(
+        (uz - ref_uz).abs() < tolerance,
+        "uz mismatch: ferrix={uz}, ref={ref_uz}"
+    );
+}
+
+#[test]
+fn test_calculix_parity_2step() {
+    let mut project = Project::from_jobname("tests/data/C3D4_2staticstep", None)
+        .expect("Failed to parse .inp file");
+
+    project.default_initial_temperature = 20.0;
+
+    let num_nodes = project.mesh.nodes.len();
+    let num_dofs = num_nodes * 3;
+    let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+    solution_state.initialize(&project);
+
+    let mut simulation_time = SolverTime::new();
+    let writer = MockWriter;
+
+    // Run Step 1
+    project.steps[0]
+        .solve(
+            1,
+            &project,
+            &mut solution_state,
+            &writer,
+            &mut simulation_time,
+        )
+        .expect("Step 1 failed");
+
+    // Verify Node 17 Step 1
+    // 17  9.356107E-06 -1.313901E-04  1.719218E-03
+    let node_id = NodeId(17);
+    let idx = project
+        .mesh
+        .get_index_for_node_id(node_id)
+        .expect("Node 17 not found");
+
+    {
+        let ux = solution_state.displacements[idx * 3];
+        let uy = solution_state.displacements[idx * 3 + 1];
+        let uz = solution_state.displacements[idx * 3 + 2];
+
+        let ref_ux = 9.356_107E-06;
+        let ref_uy = -1.313_901E-04;
+        let ref_uz = 1.719_218E-03;
+        let tolerance = 1e-6;
+
+        assert!(
+            (ux - ref_ux).abs() < tolerance,
+            "Step 1 ux mismatch: ferrix={ux}, ref={ref_ux}"
+        );
+        assert!(
+            (uy - ref_uy).abs() < tolerance,
+            "Step 1 uy mismatch: ferrix={uy}, ref={ref_uy}"
+        );
+        assert!(
+            (uz - ref_uz).abs() < tolerance,
+            "Step 1 uz mismatch: ferrix={uz}, ref={ref_uz}"
+        );
+    }
+
+    // Run Step 2
+    project.steps[1]
+        .solve(
+            2,
+            &project,
+            &mut solution_state,
+            &writer,
+            &mut simulation_time,
+        )
+        .expect("Step 2 failed");
+
+    // Verify Node 17 Step 2
+    // 17  2.603480E-04 -1.377070E-04  1.001299E-03
+    {
+        let ux = solution_state.displacements[idx * 3];
+        let uy = solution_state.displacements[idx * 3 + 1];
+        let uz = solution_state.displacements[idx * 3 + 2];
+
+        let ref_ux = 2.603_480E-04;
+        let ref_uy = -1.377_070E-04;
+        let ref_uz = 1.001_299E-03;
+        let tolerance = 1e-6;
+
+        assert!(
+            (ux - ref_ux).abs() < tolerance,
+            "Step 2 ux mismatch: ferrix={ux}, ref={ref_ux}"
+        );
+        assert!(
+            (uy - ref_uy).abs() < tolerance,
+            "Step 2 uy mismatch: ferrix={uy}, ref={ref_uy}"
+        );
+        assert!(
+            (uz - ref_uz).abs() < tolerance,
+            "Step 2 uz mismatch: ferrix={uz}, ref={ref_uz}"
+        );
+    }
+}
+
+#[test]
+fn test_calculix_parity_nlgeom() {
+    let mut project =
+        Project::from_jobname("tests/data/NLGEOM_test", None).expect("Failed to parse .inp file");
+
+    project.default_initial_temperature = 20.0;
+
+    let num_nodes = project.mesh.nodes.len();
+    let num_dofs = num_nodes * 3;
+    let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+    solution_state.initialize(&project);
+
+    let mut simulation_time = SolverTime::new();
+    let writer = MockWriter;
+
+    // Run Step 1
+    project.steps[0]
+        .solve(
+            1,
+            &project,
+            &mut solution_state,
+            &writer,
+            &mut simulation_time,
+        )
+        .expect("Step 1 failed");
+
+    let node_id = NodeId(1);
+    let idx = project
+        .mesh
+        .get_index_for_node_id(node_id)
+        .expect("Node 1 not found");
+
+    {
+        let ux = solution_state.displacements[idx * 3];
+        let uy = solution_state.displacements[idx * 3 + 1];
+        let uz = solution_state.displacements[idx * 3 + 2];
+
+        let ref_ux = -9.163_880E-02;
+        let ref_uy = 3.500_324E-01;
+        let ref_uz = 1.324_598E-01;
+        let tolerance = 5e-3; // NLGEOM can have slightly more variance due to different Jacobian updates
+
+        assert!(
+            (ux - ref_ux).abs() < tolerance,
+            "Step 1 ux mismatch: ferrix={ux}, ref={ref_ux}"
+        );
+        assert!(
+            (uy - ref_uy).abs() < tolerance,
+            "Step 1 uy mismatch: ferrix={uy}, ref={ref_uy}"
+        );
+        assert!(
+            (uz - ref_uz).abs() < tolerance,
+            "Step 1 uz mismatch: ferrix={uz}, ref={ref_uz}"
+        );
+    }
+
+    // Run Step 2
+    project.steps[1]
+        .solve(
+            2,
+            &project,
+            &mut solution_state,
+            &writer,
+            &mut simulation_time,
+        )
+        .expect("Step 2 failed");
+
+    {
+        let ux = solution_state.displacements[idx * 3];
+        let uy = solution_state.displacements[idx * 3 + 1];
+        let uz = solution_state.displacements[idx * 3 + 2];
+
+        let ref_ux = 8.591_845E-01;
+        let ref_uy = 3.624_377E-01;
+        let ref_uz = 2.653_401E-01;
+        let tolerance = 5e-3;
+
+        assert!(
+            (ux - ref_ux).abs() < tolerance,
+            "Step 2 ux mismatch: ferrix={ux}, ref={ref_ux}"
+        );
+        assert!(
+            (uy - ref_uy).abs() < tolerance,
+            "Step 2 uy mismatch: ferrix={uy}, ref={ref_uy}"
+        );
+        assert!(
+            (uz - ref_uz).abs() < tolerance,
+            "Step 2 uz mismatch: ferrix={uz}, ref={ref_uz}"
+        );
+    }
+}
+
+#[test]
+fn test_calculix_parity_c3d20() {
+    let mut project =
+        Project::from_jobname("tests/data/C3D20", None).expect("Failed to parse .inp file");
+
+    project.default_initial_temperature = 20.0;
+
+    let num_nodes = project.mesh.nodes.len();
+    let num_dofs = num_nodes * 3;
+    let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+    solution_state.initialize(&project);
+
+    let mut simulation_time = SolverTime::new();
+    let writer = MockWriter;
+
+    for (i, step) in project.steps.iter().enumerate() {
+        let step_id = i + 1;
+        step.solve(
+            step_id,
+            &project,
+            &mut solution_state,
+            &writer,
+            &mut simulation_time,
+        )
+        .expect("Step failed");
+    }
+
+    // Node 17 Reference from CalculiX .dat file:
+    // 17  5.752112E-02 -2.497816E-04 -8.074951E-03
+    let node_id = NodeId(17);
+    let idx = project
+        .mesh
+        .get_index_for_node_id(node_id)
+        .expect("Node 17 not found");
+
+    let ux = solution_state.displacements[idx * 3];
+    let uy = solution_state.displacements[idx * 3 + 1];
+    let uz = solution_state.displacements[idx * 3 + 2];
+
+    println!("Ferrix results for Node 17 (C3D20): ux={ux:.6e}, uy={uy:.6e}, uz={uz:.6e}");
+
+    let ref_ux = 5.752_112E-02;
+    let ref_uy = -2.497_816E-04;
+    let ref_uz = -8.074_951E-03;
+
+    let tolerance = 1e-6;
+
+    assert!(
+        (ux - ref_ux).abs() < tolerance,
+        "ux mismatch: ferrix={ux}, ref={ref_ux}"
+    );
+    assert!(
+        (uy - ref_uy).abs() < tolerance,
+        "uy mismatch: ferrix={uy}, ref={ref_uy}"
+    );
+    assert!(
+        (uz - ref_uz).abs() < tolerance,
+        "uz mismatch: ferrix={uz}, ref={ref_uz}"
+    );
+}

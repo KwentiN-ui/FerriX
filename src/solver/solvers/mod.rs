@@ -1,8 +1,14 @@
-use crate::solver::preconditioner::Preconditioner;
-use sprs::CsMat;
+//! Linear system solvers.
+//!
+//! This module defines the `Solver` trait and provides implementations for
+//! direct (Cholesky) and iterative (Preconditioned Conjugate Gradient) methods.
 
 pub mod direct;
 pub mod iterative;
+
+use crate::solver::error::Result;
+use crate::solver::preconditioner::Preconditioner;
+use sprs::CsMat;
 
 /// A trait for linear system solvers.
 ///
@@ -23,7 +29,10 @@ pub trait Solver {
     /// # Returns
     ///
     /// A `Result` containing the displacement vector `u` if the solution converges,
-    /// or a `String` with an error message otherwise.
+    /// or a `FerrixError` otherwise.
+    ///
+    /// # Errors
+    /// Returns an error if the solver fails to converge or encounters a numerical issue.
     fn solve(
         &self,
         k_global: &CsMat<f64>,
@@ -31,12 +40,16 @@ pub trait Solver {
         preconditioner: Option<&dyn Preconditioner>,
         tol: f64,
         max_iter: usize,
-    ) -> Result<Vec<f64>, String>;
+    ) -> Result<Vec<f64>>;
 }
 
+/// Strategies for solving the global system of equations.
 #[derive(Debug, Clone)]
 pub enum SolverType {
+    /// A direct solver using sparse Cholesky factorization.
     Direct,
+    /// An iterative solver using the Preconditioned Conjugate Gradient (PCG) method.
     Iterative,
+    /// The default solver strategy for the current analysis type.
     Default,
 }

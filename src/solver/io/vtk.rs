@@ -1,3 +1,8 @@
+//! VTK result exporter.
+//!
+//! This module implements the `ResultWriter` trait for the VTK format,
+//! allowing results to be visualized in software like `ParaView`.
+
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -11,22 +16,39 @@ use crate::solver::results::{FieldType, IncResult};
 use crate::solver::time::SolverTime;
 use nalgebra::{Matrix3, SymmetricEigen};
 
+/// A result writer that exports simulation data to VTK files.
+///
+/// It generates unstructured grid (.vtk) files for each increment and a
+/// ParaView-compatible (.vtk.series) file to manage the time steps.
 pub struct VtkWriter {
     project: Arc<Project>,
 }
 
 impl VtkWriter {
+    /// Creates a new `VtkWriter`.
+    #[must_use]
     pub fn new(project: Arc<Project>) -> Self {
         Self { project }
     }
     fn dirpath(&self) -> PathBuf {
-        self.project.job_dir().join(self.project.jobname())
+        let jobname = self
+            .project
+            .jobname()
+            .unwrap_or_else(|_| "Unknown".to_string());
+        self.project
+            .job_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(jobname)
     }
 }
 
 const SERIES_FILENAME: &str = "results.vtk.series";
 
 impl ResultWriter for VtkWriter {
+    /// Is called at the beginning of analysis. Can be used to setup directories etc.
+    ///
+    /// # Errors
+    /// Returns an error if the initialization fails (e.g. directory creation).
     fn init(&self) -> Result<(), Box<dyn Error>> {
         let dirpath = self.dirpath();
         fs::create_dir_all(&dirpath)?;
@@ -42,6 +64,10 @@ impl ResultWriter for VtkWriter {
         Ok(())
     }
 
+    /// Writes the results of an increment.
+    ///
+    /// # Errors
+    /// Returns an error if the writing fails.
     #[allow(clippy::too_many_lines)]
     fn write_increment(
         &self,
@@ -67,8 +93,11 @@ impl ResultWriter for VtkWriter {
         writeln!(w, "POINTS {num_nodes} float")?;
 
         for &node_id in &mesh.index_to_node_id {
-            let node = &mesh.nodes[&node_id];
-            writeln!(w, "{} {} {}", node.x, node.y, node.z)?;
+            if let Some(node) = mesh.nodes.get(&node_id) {
+                writeln!(w, "{} {} {}", node.x, node.y, node.z)?;
+            } else {
+                writeln!(w, "0.0 0.0 0.0")?;
+            }
         }
 
         // --- CELLS (Elements) ---
@@ -78,14 +107,59 @@ impl ResultWriter for VtkWriter {
 
         for elem in mesh.elements.values() {
             match elem {
-                Element::C3D4(_, nodes) => {
-                    let idx0 = mesh.get_index_for_node_id(nodes[0]).unwrap();
-                    let idx1 = mesh.get_index_for_node_id(nodes[1]).unwrap();
-                    let idx2 = mesh.get_index_for_node_id(nodes[2]).unwrap();
-                    let idx3 = mesh.get_index_for_node_id(nodes[3]).unwrap();
-                    cell_data.push(format!("4 {idx0} {idx1} {idx2} {idx3}"));
-                    cell_types.push(10); // VTK_TETRA
-                    list_size += 5;
+                Element::C3D4(e) => {
+                    let nodes = e.nodes;
+                    if let (Some(idx0), Some(idx1), Some(idx2), Some(idx3)) = (
+                        mesh.get_index_for_node_id(nodes[0]),
+                        mesh.get_index_for_node_id(nodes[1]),
+                        mesh.get_index_for_node_id(nodes[2]),
+                        mesh.get_index_for_node_id(nodes[3]),
+                    ) {
+                        cell_data.push(format!("4 {idx0} {idx1} {idx2} {idx3}"));
+                        cell_types.push(10); // VTK_TETRA
+                        list_size += 5;
+                    }
+                }
+                Element::C3D20(e) => {
+                    let nodes = e.nodes;
+                    let mut indices = Vec::with_capacity(20);
+                    let mut all_found = true;
+                    for &node_id in &nodes {
+                        if let Some(idx) = mesh.get_index_for_node_id(node_id) {
+                            indices.push(idx);
+                        } else {
+                            all_found = false;
+                            break;
+                        }
+                    }
+                    if all_found {
+                        let line = format!(
+                            "20 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                            indices[0],
+                            indices[1],
+                            indices[2],
+                            indices[3],
+                            indices[4],
+                            indices[5],
+                            indices[6],
+                            indices[7],
+                            indices[8],
+                            indices[9],
+                            indices[10],
+                            indices[11],
+                            indices[12],
+                            indices[13],
+                            indices[14],
+                            indices[15],
+                            indices[16],
+                            indices[17],
+                            indices[18],
+                            indices[19]
+                        );
+                        cell_data.push(line);
+                        cell_types.push(25); // VTK_QUADRATIC_HEXAHEDRON
+                        list_size += 21;
+                    }
                 }
             }
         }
@@ -161,6 +235,23 @@ impl ResultWriter for VtkWriter {
             }
         }
 
+        // --- Temperature ---
+        if let Some(field) = inc_result
+            .nodal_results
+            .iter()
+            .find(|f| f.field_type == FieldType::Temperature)
+        {
+            writeln!(w, "SCALARS NT float 1")?;
+            writeln!(w, "LOOKUP_TABLE default")?;
+            for &node_id in &mesh.index_to_node_id {
+                if let Some(val) = field.data.get(&node_id) {
+                    writeln!(w, "{}", val[0])?;
+                } else {
+                    writeln!(w, "0.0")?;
+                }
+            }
+        }
+
         // --- MISES & TRESCA ---
         let stress_field = inc_result
             .nodal_results
@@ -227,6 +318,10 @@ impl ResultWriter for VtkWriter {
         Ok(())
     }
 
+    /// Is called at the very end of the analysis. Can be used for cleanup, etc.
+    ///
+    /// # Errors
+    /// Returns an error if the finish operation fails.
     fn finish(&self) -> Result<(), Box<dyn Error>> {
         let series = OpenOptions::new()
             .append(true)

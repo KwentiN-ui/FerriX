@@ -1,8 +1,18 @@
+//! Direct linear solver.
+//!
+//! Implements a sparse direct solver using the Cholesky decomposition
+//! from the `faer` crate.
+
+use crate::solver::error::{FerrixError, Result};
 use crate::solver::solvers::Solver;
 use faer::Side;
 use faer::prelude::*;
 use faer::sparse::{SparseColMatRef, SymbolicSparseColMatRef};
 
+/// A direct solver using sparse Cholesky factorization.
+///
+/// This solver is generally robust and efficient for small to medium-sized
+/// problems, but memory usage scales more aggressively than iterative solvers.
 pub struct DirectSolver;
 
 impl Solver for DirectSolver {
@@ -13,13 +23,13 @@ impl Solver for DirectSolver {
         _preconditioner: Option<&dyn crate::solver::preconditioner::Preconditioner>,
         _tol: f64,
         _max_iter: usize,
-    ) -> Result<Vec<f64>, String> {
+    ) -> Result<Vec<f64>> {
         let (rows, cols) = k_global.shape();
 
         let indptr_storage = k_global.indptr();
-        let indptr = indptr_storage
-            .as_slice()
-            .ok_or("Failed to get indptr from sprs matrix")?;
+        let indptr = indptr_storage.as_slice().ok_or_else(|| {
+            FerrixError::NumericalError("Failed to get indptr from sprs matrix".into())
+        })?;
 
         let indices = k_global.indices();
         let data = k_global.data();
@@ -34,7 +44,9 @@ impl Solver for DirectSolver {
 
         // Cholesky-Decomposition
         let llt = k_faer.sp_cholesky(Side::Lower).map_err(|e| {
-            format!("Cholesky factorization failed: {e}. Check for rigid body modes!")
+            FerrixError::NumericalError(format!(
+                "Cholesky factorization failed: {e}. Check for rigid body modes!"
+            ))
         })?;
 
         let x_mat = llt.solve(&b);

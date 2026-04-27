@@ -1,3 +1,6 @@
 /target
-/test_inputs/*.vtk
-/test_inputs/models/*.vtk
+# Solution files
+*.vtk
+*.vtk.series
+# Symbolic Link to the CalculiX Repository for reference
+CalculiX

@@ -1,22 +1,27 @@
-use crate::solver::{amplitude::Amplitude, ids::ElementId};
+//! FEA project management and central data coordination.
+//!
+//! The `Project` struct in this module acts as the "God Object" or central hub,
+//! aggregating all mesh, material, and step data into a single container.
+
+use crate::solver::amplitude::Amplitude;
+use crate::solver::error::{FerrixError, Result};
+use crate::solver::ids::{ElementId, NodeId};
 use std::{
     collections::HashMap,
-    error::Error,
     fmt::Write,
     fs::{self, read_to_string},
     path::PathBuf,
 };
 
-use crate::solver::{
-    inp::InpFile,
-    material::Material,
-    mesh_lib::mesh::Mesh,
-    parser::Parser,
-    step::{
-        boundary_conds::{BoundaryCondition, Load},
-        steps::Step,
-    },
+use crate::solver::inp::InpFile;
+use crate::solver::material::Material;
+use crate::solver::mesh_lib::mesh::Mesh;
+use crate::solver::parser::Parser;
+use crate::solver::step::{
+    boundary_conds::{BoundaryCondition, Load},
+    steps::Step,
 };
+use std::sync::Arc;
 
 /// Represents the central data structure for a single FEA problem.
 ///
@@ -34,13 +39,17 @@ pub struct Project {
     /// The preprocessed content of the input file, stored for reference.
     pub input: Box<InpFile>,
     /// A list of all materials defined in the model.
-    pub materials: Vec<Material>,
+    pub materials: Vec<Arc<dyn Material>>,
     /// A map that links each `ElementId` to its corresponding material's index in the `materials` vector.
     pub element_materials: HashMap<ElementId, usize>,
-    /// A collection of all concentrated loads (`*CLOAD`) defined in the model.
-    pub loads: Vec<Load>,
-    /// A collection of all boundary conditions (`*BOUNDARY`) defined in the model.
-    pub bcs: Vec<BoundaryCondition>,
+    /// A collection of all concentrated loads (*CLOAD) defined before the first step.
+    pub initial_loads: Vec<Load>,
+    /// A collection of all boundary conditions (*BOUNDARY) defined before the first step.
+    pub initial_bcs: Vec<BoundaryCondition>,
+    /// Initial nodal temperatures (*INITIAL CONDITIONS, TYPE=TEMPERATURE).
+    pub initial_temperatures: HashMap<NodeId, f64>,
+    /// Default temperature for nodes without explicit initial conditions.
+    pub default_initial_temperature: f64,
     /// Nodal output variables requested by the user (e.g. `U`, `RF`).
     pub nodal_output: Vec<String>,
     /// Element output variables requested by the user (e.g. `S`, `E`).
@@ -50,16 +59,22 @@ pub struct Project {
 }
 
 impl Project {
+    #[must_use]
     pub fn new() -> Self {
         Project::default()
     }
 
+    #[must_use]
     pub fn get_info(&self) -> String {
         let mut info = String::new();
 
         let _ = writeln!(info, "--- Project Info ---");
         let _ = writeln!(info, "Jobname:");
-        let _ = writeln!(info, "  {}", self.jobname());
+        let _ = writeln!(
+            info,
+            "  {}",
+            self.jobname().unwrap_or_else(|_| "Unknown".to_string())
+        );
         let _ = writeln!(info, "Mesh:");
         let _ = writeln!(info, "  Nodes: {}", self.mesh.nodes.len());
         let _ = writeln!(info, "  Elements:");
@@ -71,10 +86,14 @@ impl Project {
         info
     }
 
+    /// Creates a new Project from a jobname.
+    ///
+    /// # Errors
+    /// Returns an error if the input file cannot be read or parsed.
     pub fn from_jobname(
         jobname_filepath: &str,
         preprocess_output: Option<&String>,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Self> {
         let mut path = PathBuf::from(jobname_filepath);
 
         if !path
@@ -86,9 +105,16 @@ impl Project {
             path = PathBuf::from(s);
         }
 
-        let input_content = read_to_string(&path)?;
+        let input_content = read_to_string(&path).map_err(|e| FerrixError::Io {
+            path: path.clone(),
+            source: e,
+        })?;
         if let Some(out) = preprocess_output {
-            fs::write(out, &input_content)?;
+            let out_path = PathBuf::from(out);
+            fs::write(&out_path, &input_content).map_err(|e| FerrixError::Io {
+                path: out_path,
+                source: e,
+            })?;
         }
 
         let input = InpFile::new(&input_content);
@@ -101,17 +127,29 @@ impl Project {
     }
 
     /// Gets the jobname from a filepath.
-    pub fn jobname(&self) -> String {
-        self.filepath
+    ///
+    /// # Errors
+    /// Returns an error if the jobname cannot be inferred.
+    pub fn jobname(&self) -> Result<String> {
+        let stem = self
+            .filepath
             .file_stem()
-            .expect("The jobname could not be inferred by the given arguments.")
+            .ok_or_else(|| {
+                FerrixError::InvalidModelState("Could not infer jobname from path".into())
+            })?
             .to_str()
-            .expect("There is no reason why this should fail")
-            .to_string()
+            .ok_or_else(|| FerrixError::InvalidModelState("Invalid UTF-8 in jobname".into()))?;
+        Ok(stem.to_string())
     }
 
     /// Filepath to the output directory
-    pub fn job_dir(&self) -> PathBuf {
-        self.filepath.parent().expect("Invalid filepath.").into()
+    ///
+    /// # Errors
+    /// Returns an error if the job directory cannot be inferred.
+    pub fn job_dir(&self) -> Result<PathBuf> {
+        self.filepath
+            .parent()
+            .map(PathBuf::from)
+            .ok_or_else(|| FerrixError::InvalidModelState("Could not infer job directory".into()))
     }
 }

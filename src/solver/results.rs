@@ -1,26 +1,40 @@
+//! Simulation results and field data.
+//!
+//! This module defines the structures used to store and organize results from
+//! different increments and steps, such as displacements, stresses, and strains.
+
 use crate::solver::ids::NodeId;
 use std::collections::HashMap;
 
-/// Types of fields we can store
+/// Types of physical fields that can be stored in results.
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldType {
-    Displacement, // U
-    Stress,       // S
-    Strain,       // E
+    /// Nodal displacements (U).
+    Displacement,
+    /// Element stresses (S).
+    Stress,
+    /// Element strains (E).
+    Strain,
+    /// Nodal temperatures (NT).
+    Temperature,
 }
 
-/// Holds values for one specific field (e.g. Displacements for all nodes)
+/// Stores result values for a specific field across all relevant nodes.
 #[derive(Debug, Clone)]
 pub struct NodalResult {
+    /// Descriptive name of the result field (e.g., "DISP").
     #[allow(dead_code)]
-    pub name: String, // e.g. "DISP"
+    pub name: String,
+    /// The type of field being stored.
     pub field_type: FieldType,
-    /// Maps Node ID -> Vector of values (e.g. [dx, dy, dz])
+    /// Mapping from `NodeId` to the vector of field values (e.g., [dx, dy, dz]).
     pub data: HashMap<NodeId, Vec<f64>>,
 }
 
 impl NodalResult {
+    /// Creates a new, empty `NodalResult` container.
+    #[must_use]
     pub fn new(name: &str, field_type: FieldType) -> Self {
         Self {
             name: name.to_string(),
@@ -29,23 +43,30 @@ impl NodalResult {
         }
     }
 
+    /// Inserts field values for a specific node.
     pub fn insert(&mut self, node_id: NodeId, values: Vec<f64>) {
         self.data.insert(node_id, values);
     }
 }
 
-/// Holds all results for a single increment (e.g. "Step 1 - Static")
+/// Aggregates all results for a single simulation increment.
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct IncResult {
+    /// Index of the current step.
     pub step_id: usize,
+    /// Index of the current increment within the step.
     pub inc_id: usize,
+    /// Name of the current step.
     pub step_name: String,
+    /// Time increment size for this state.
     pub time_increment: f64,
+    /// Collection of nodal results for this increment.
     pub nodal_results: Vec<NodalResult>,
 }
 
 impl IncResult {
+    #[must_use]
     pub fn new(step_id: usize, inc_id: usize, name: &str, time: f64) -> Self {
         Self {
             step_id,

@@ -1,13 +1,16 @@
+//! `FerriX` CLI
+//!
+//! The main entry point for the `FerriX` FEA solver. This executable handles command-line arguments,
+//! initializes the simulation environment, and executes the solver steps.
+
 use std::sync::Arc;
 
 use chrono::{Local, Utc};
 use clap::Parser;
+use ferrix::solver::{io::OutputFormat, project::Project, state::SolutionState, time::SolverTime};
 use rayon::ThreadPoolBuilder;
 
-use crate::solver::{io::OutputFormat, project::Project, state::SolutionState, time::SolverTime};
-
-mod solver;
-
+/// Default number of threads used for parallel computations.
 const DEFAULT_THREADS: usize = 4;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -34,11 +37,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut simulation_time = SolverTime::new();
 
     // --- Main solver loop ---
-    let num_dofs = project.mesh.nodes.len() * 3;
-    let mut solution_state = SolutionState::new(num_dofs);
+    let num_nodes = project.mesh.nodes.len();
+    let num_dofs = num_nodes * 3;
+    let mut solution_state = SolutionState::new(num_dofs, num_nodes);
+    solution_state.initialize(&project);
+
     let writer = args.output_format.get_writer(project.clone());
 
-    writer.init().unwrap();
+    writer.init()?;
 
     for (i, step) in project.steps.iter().enumerate() {
         // Each step needs to call the simulation_time methods internally to advance the time properly!
@@ -67,6 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Command-line arguments for the `FerriX` solver.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
 pub struct Args {
@@ -77,6 +84,7 @@ pub struct Args {
     #[arg(short, long, default_value_t = DEFAULT_THREADS)]
     num_threads: usize,
 
+    /// The format in which results will be saved.
     #[arg(short, long, default_value_t = OutputFormat::Vtk)]
     output_format: OutputFormat,
 

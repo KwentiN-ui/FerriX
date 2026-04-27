@@ -1,12 +1,28 @@
+//! Iterative linear solver.
+//!
+//! Implements the Preconditioned Conjugate Gradient (PCG) method for solving
+//! the global system of equations.
+
 use super::{Preconditioner, Solver};
+use crate::solver::error::{FerrixError, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use sprs::CsMat;
 use std::time::Duration;
 
+/// An iterative solver using the Preconditioned Conjugate Gradient (PCG) method.
+///
+/// Iterative solvers are often more memory-efficient than direct solvers for
+/// very large systems, but their performance depends heavily on the
+/// quality of the preconditioner.
 pub struct IterativeSolver;
 
 impl Solver for IterativeSolver {
+    /// Solves the system `K * x = b` using the PCG algorithm.
+    ///
+    /// # Errors
+    /// Returns `FerrixError::ConvergenceError` if the solver fails to reach the
+    /// requested tolerance within `max_iter` iterations.
     fn solve(
         &self,
         k: &CsMat<f64>,
@@ -14,7 +30,7 @@ impl Solver for IterativeSolver {
         preconditioner: Option<&dyn Preconditioner>,
         tol: f64,
         max_iter: usize,
-    ) -> Result<Vec<f64>, String> {
+    ) -> Result<Vec<f64>> {
         let spinner = ProgressBar::new_spinner();
         spinner.enable_steady_tick(Duration::from_millis(100));
         spinner.set_style(ProgressStyle::default_spinner());
@@ -99,7 +115,9 @@ impl Solver for IterativeSolver {
         }
 
         spinner.finish();
-        Err(format!("PCG did not converge after {max_iter} iterations"))
+        Err(FerrixError::ConvergenceError(format!(
+            "PCG did not converge after {max_iter} iterations"
+        )))
     }
 }
 
