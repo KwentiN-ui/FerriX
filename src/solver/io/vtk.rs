@@ -120,6 +120,37 @@ impl ResultWriter for VtkWriter {
                         list_size += 5;
                     }
                 }
+                Element::C3D10(e) => {
+                    let nodes = e.nodes;
+                    let mut indices = Vec::with_capacity(10);
+                    let mut all_found = true;
+                    for &node_id in &nodes {
+                        if let Some(idx) = mesh.get_index_for_node_id(node_id) {
+                            indices.push(idx);
+                        } else {
+                            all_found = false;
+                            break;
+                        }
+                    }
+                    if all_found {
+                        let line = format!(
+                            "10 {} {} {} {} {} {} {} {} {} {}",
+                            indices[0],
+                            indices[1],
+                            indices[2],
+                            indices[3],
+                            indices[4],
+                            indices[5],
+                            indices[6],
+                            indices[7],
+                            indices[8],
+                            indices[9]
+                        );
+                        cell_data.push(line);
+                        cell_types.push(24); // VTK_QUADRATIC_TETRA
+                        list_size += 11;
+                    }
+                }
                 Element::C3D20(e) => {
                     let nodes = e.nodes;
                     let mut indices = Vec::with_capacity(20);
