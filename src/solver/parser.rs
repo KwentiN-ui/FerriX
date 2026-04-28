@@ -180,6 +180,14 @@ impl<'a> Parser<'a> {
                         .and_then(Option::as_deref)
                         .map(str::to_string);
                     self.is_generate = kwargs.contains_key("GENERATE");
+
+                    while let Some((_, next_line)) = lines.peek() {
+                        if next_line.starts_with('*') {
+                            break;
+                        }
+                        let (_, line_content) = lines.next().unwrap();
+                        self.parse_nset(line_content);
+                    }
                 }
                 Keyword::Elset => {
                     let kwargs = get_keyword_arguments(line);
@@ -188,6 +196,14 @@ impl<'a> Parser<'a> {
                         .and_then(Option::as_deref)
                         .map(str::to_string);
                     self.is_generate = kwargs.contains_key("GENERATE");
+
+                    while let Some((_, next_line)) = lines.peek() {
+                        if next_line.starts_with('*') {
+                            break;
+                        }
+                        let (_, line_content) = lines.next().unwrap();
+                        self.parse_elset(line_content);
+                    }
                 }
                 Keyword::Material => {
                     let kwargs = get_keyword_arguments(line);
@@ -391,19 +407,34 @@ impl<'a> Parser<'a> {
                         .and_then(Option::as_deref)
                         .and_then(|val| val.parse().ok())
                         .unwrap_or_default();
-                    if let Some((_next_nr, next_line)) = lines.peek() {
-                        let t: Vec<f64> = next_line
+
+                    let mut t = Vec::new();
+                    let mut vals = Vec::new();
+
+                    while let Some((_next_nr, next_line)) = lines.peek() {
+                        if next_line.starts_with('*') {
+                            break;
+                        }
+                        let (_, line_content) = lines.next().unwrap();
+                        let line_t: Vec<f64> = line_content
                             .split(',')
                             .step_by(2)
                             .map(str::trim)
-                            .filter_map(|num| num.parse().ok())
-                            .collect();
+                            .filter(|s| !s.is_empty())
+                            .map(|num| {
+                                num.parse().map_err(|e| FerrixError::ParseError {
+                                    line: self.line_nr,
+                                    message: format!("Invalid amplitude time value: {e}"),
+                                })
+                            })
+                            .collect::<Result<Vec<f64>>>()?;
 
-                        let vals: Vec<f64> = next_line
+                        let line_vals: Vec<f64> = line_content
                             .split(',')
                             .skip(1)
                             .step_by(2)
                             .map(str::trim)
+                            .filter(|s| !s.is_empty())
                             .map(|num| {
                                 num.parse().map_err(|e| FerrixError::ParseError {
                                     line: self.line_nr,
@@ -412,18 +443,21 @@ impl<'a> Parser<'a> {
                             })
                             .collect::<Result<Vec<f64>>>()?;
 
-                        let data = Some(TimeSeries(t, vals));
-
-                        self.project.amplitudes.insert(
-                            name.into(),
-                            Amplitude {
-                                total_time,
-                                shift_x,
-                                shift_y,
-                                data,
-                            },
-                        );
+                        t.extend(line_t);
+                        vals.extend(line_vals);
                     }
+
+                    let data = Some(TimeSeries(t, vals));
+
+                    self.project.amplitudes.insert(
+                        name.into(),
+                        Amplitude {
+                            total_time,
+                            shift_x,
+                            shift_y,
+                            data,
+                        },
+                    );
                 }
                 Keyword::Boundary => {
                     let kwargs = get_keyword_arguments(line);
@@ -439,9 +473,13 @@ impl<'a> Parser<'a> {
                             self.project.initial_bcs.clear();
                         }
                     }
-                    if let Some((_next_nr, next_line)) = lines.peek() {
-                        if !next_line.starts_with('*') {
-                            self.parse_boundary(next_line, amplitude_name)?;
+                    while let Some((_next_nr, next_line)) = lines.peek() {
+                        if next_line.starts_with('*') {
+                            break;
+                        }
+
+                        if let Some((_, line_content)) = lines.next() {
+                            self.parse_boundary(line_content, amplitude_name)?;
                         }
                     }
                 }
@@ -469,6 +507,28 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
+                Keyword::NodeFile => {
+                    while let Some((_, next_line)) = lines.peek() {
+                        if next_line.starts_with('*') {
+                            break;
+                        }
+                        let (_, line_content) = lines.next().unwrap();
+                        self.project
+                            .nodal_output
+                            .extend(line_content.split(',').map(str::trim).map(str::to_string));
+                    }
+                }
+                Keyword::ElFile => {
+                    while let Some((_, next_line)) = lines.peek() {
+                        if next_line.starts_with('*') {
+                            break;
+                        }
+                        let (_, line_content) = lines.next().unwrap();
+                        self.project
+                            .element_output
+                            .extend(line_content.split(',').map(str::trim).map(str::to_string));
+                    }
+                }
                 _ => {}
             }
         } else {
@@ -486,23 +546,11 @@ impl<'a> Parser<'a> {
             match keyword {
                 Keyword::Node => self.parse_node(line)?,
                 Keyword::Element => self.parse_element(line)?,
-                Keyword::Nset => self.parse_nset(line),
-                Keyword::Elset => self.parse_elset(line),
                 Keyword::Elastic => self.parse_elastic(line)?,
                 Keyword::Density => self.parse_density(line)?,
                 Keyword::Expansion => self.parse_expansion(line)?,
                 Keyword::InitialConditions => self.parse_initial_conditions(line)?,
                 Keyword::Depvar => self.parse_depvar(line)?,
-                Keyword::NodeFile => {
-                    self.project
-                        .nodal_output
-                        .extend(line.split(',').map(str::trim).map(str::to_string));
-                }
-                Keyword::ElFile => {
-                    self.project
-                        .element_output
-                        .extend(line.split(',').map(str::trim).map(str::to_string));
-                }
                 _ => {}
             }
         }
@@ -901,22 +949,33 @@ fn get_positional_arguments(line: &str) -> Vec<&str> {
 /// - removes empty lines
 #[must_use]
 pub fn preprocess_inp(input_file: &str) -> String {
-    let preprocessed: String = input_file
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(|line| line.chars().map(|c| c.to_uppercase().to_string()).collect())
-        // merge lines that end with `,`
-        .map(|line: String| {
-            if line.ends_with(',') {
-                line + " "
-            } else {
-                line + "\n"
-            }
-        })
-        // remove comments
-        .filter(|line| !line.starts_with("**"))
-        .collect();
+    let mut preprocessed = String::new();
+    let mut current_line = String::new();
+
+    for line in input_file.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with("**") {
+            continue;
+        }
+
+        let upper_line = line.to_uppercase();
+        if !current_line.is_empty() {
+            current_line.push(' ');
+        }
+        current_line.push_str(&upper_line);
+
+        if !upper_line.ends_with(',') {
+            preprocessed.push_str(&current_line);
+            preprocessed.push('\n');
+            current_line.clear();
+        }
+    }
+
+    if !current_line.is_empty() {
+        preprocessed.push_str(&current_line);
+        preprocessed.push('\n');
+    }
+
     substitute_ccx_solvers(&preprocessed)
 }
 
@@ -968,5 +1027,57 @@ mod tests {
         let line = "0.1, 1, 1E-05, 0.2";
         let args = get_positional_arguments(line);
         assert_equal(args, vec!["0.1", "1", "1E-05", "0.2"]);
+    }
+
+    #[test]
+    fn test_multiple_boundary_lines() {
+        let inp = "
+*NODE
+1, 0, 0, 0
+2, 1, 0, 0
+*BOUNDARY
+1, 1, 1, 0.1
+1, 2, 2, 0.2
+*STEP
+*STATIC
+*BOUNDARY
+2, 1, 1, 0.3
+2, 2, 2, 0.4
+*END STEP
+";
+        let inp_file = InpFile::new(inp);
+        let parser = Parser::new(&inp_file);
+        let project = parser.parse().unwrap();
+
+        assert_eq!(project.initial_bcs.len(), 2, "Should have 2 initial BCs");
+        assert_eq!(project.steps.len(), 1);
+        let Step::StaticStep(step) = &project.steps[0];
+        assert_eq!(
+            step.bcs.len(),
+            4,
+            "Should have 4 step BCs (2 inherited + 2 new)"
+        );
+    }
+
+    #[test]
+    fn test_multiple_amplitude_lines() {
+        let inp = "
+        *AMPLITUDE, NAME=TABULAR-1
+        0, 0, 1, 100,
+        2, 200, 3, 300
+        ";
+        let inp_file = InpFile::new(inp);
+        let parser = Parser::new(&inp_file);
+        let project = parser.parse().unwrap();
+
+        let amp = project.amplitudes.get("TABULAR-1").unwrap();
+        if let Some(TimeSeries(t, vals)) = &amp.data {
+            assert_eq!(t.len(), 4);
+            assert_eq!(vals.len(), 4);
+            assert_eq!(t, &vec![0.0, 1.0, 2.0, 3.0]);
+            assert_eq!(vals, &vec![0.0, 100.0, 200.0, 300.0]);
+        } else {
+            panic!("Amplitude data should be present");
+        }
     }
 }

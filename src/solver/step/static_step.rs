@@ -165,7 +165,7 @@ impl StaticStep {
 
                 println!("  Iteration {iter}: |R| = {res_norm:.3e}, |R|/|F_ext| = {rel_res:.3e}");
 
-                if rel_res < 1e-3 {
+                if rel_res < 1e-3 && iter > 0 {
                     converged = true;
                     break;
                 }
