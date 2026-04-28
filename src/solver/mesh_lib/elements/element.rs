@@ -13,6 +13,7 @@ use std::ops::AddAssign;
 use std::str::FromStr;
 
 use crate::solver::mesh_lib::elements::c3d4::C3D4;
+use crate::solver::mesh_lib::elements::c3d6::C3D6;
 use crate::solver::mesh_lib::elements::c3d10::C3D10;
 use crate::solver::mesh_lib::elements::c3d20::C3D20;
 use strum_macros::{EnumDiscriminants, EnumString};
@@ -42,6 +43,8 @@ pub trait FiniteElement: std::fmt::Debug + Send + Sync {
 pub enum Element {
     /// A 4-node linear tetrahedron (First-order 3D element).
     C3D4(C3D4),
+    /// A 6-node linear wedge (First-order 3D element).
+    C3D6(C3D6),
     /// A 10-node quadratic tetrahedron (Second-order 3D element).
     C3D10(C3D10),
     /// A 20-node quadratic brick (Second-order 3D element).
@@ -54,6 +57,7 @@ impl Element {
     pub fn inner(&self) -> &dyn FiniteElement {
         match self {
             Element::C3D4(e) => e,
+            Element::C3D6(e) => e,
             Element::C3D10(e) => e,
             Element::C3D20(e) => e,
         }
@@ -116,6 +120,17 @@ impl Element {
                         message: "Wrong node count for C3D4".into(),
                     })?;
                 Ok(Element::C3D4(C3D4 {
+                    id,
+                    nodes: nodes_arr,
+                }))
+            }
+            ElementType::C3D6 => {
+                let nodes_arr: [NodeId; 6] =
+                    nodes.try_into().map_err(|_| FerrixError::ParseError {
+                        line: 0,
+                        message: "Wrong node count for C3D6".into(),
+                    })?;
+                Ok(Element::C3D6(C3D6 {
                     id,
                     nodes: nodes_arr,
                 }))

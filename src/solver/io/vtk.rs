@@ -120,6 +120,28 @@ impl ResultWriter for VtkWriter {
                         list_size += 5;
                     }
                 }
+                Element::C3D6(e) => {
+                    let nodes = e.nodes;
+                    if let (
+                        Some(idx0),
+                        Some(idx1),
+                        Some(idx2),
+                        Some(idx3),
+                        Some(idx4),
+                        Some(idx5),
+                    ) = (
+                        mesh.get_index_for_node_id(nodes[0]),
+                        mesh.get_index_for_node_id(nodes[1]),
+                        mesh.get_index_for_node_id(nodes[2]),
+                        mesh.get_index_for_node_id(nodes[3]),
+                        mesh.get_index_for_node_id(nodes[4]),
+                        mesh.get_index_for_node_id(nodes[5]),
+                    ) {
+                        cell_data.push(format!("6 {idx0} {idx1} {idx2} {idx3} {idx4} {idx5}"));
+                        cell_types.push(13); // VTK_WEDGE
+                        list_size += 7;
+                    }
+                }
                 Element::C3D10(e) => {
                     let nodes = e.nodes;
                     let mut indices = Vec::with_capacity(10);
