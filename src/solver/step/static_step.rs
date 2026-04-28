@@ -300,19 +300,56 @@ impl StaticStep {
             let d_matrix = material.build_elastic_d_matrix(t_avg)?;
 
             let node_local_coords = element.node_local_coords();
-            let integration_points = element.integration_points();
-            let num_ips = integration_points.len();
+            let num_ips = element.integration_points().len();
+
+            // Calculate centroid for fallback
+            let mut centroid = [0.0; 3];
+            for p in &node_local_coords {
+                centroid[0] += p[0];
+                centroid[1] += p[1];
+                centroid[2] += p[2];
+            }
+            let n_nodes = node_local_coords.len() as f64;
+            let centroid = [
+                centroid[0] / n_nodes,
+                centroid[1] / n_nodes,
+                centroid[2] / n_nodes,
+            ];
 
             for (i, &node_id) in node_ids.iter().enumerate() {
                 let local_pos = node_local_coords[i];
-                let (strain_total, _) = element.calculate_stress_strain_at_local_coords(
+                let res = element.calculate_stress_strain_at_local_coords(
                     &d_matrix,
                     &u_el,
                     &project.mesh,
                     local_pos[0],
                     local_pos[1],
                     local_pos[2],
-                )?;
+                );
+
+                let (strain_total, _stress) = match res {
+                    Ok(s) => s,
+                    Err(FerrixError::NumericalError(ref msg))
+                        if msg.contains("Singular Jacobian") =>
+                    {
+                        // Fallback: shift slightly towards element center
+                        let eps = 1e-3;
+                        let shifted = [
+                            local_pos[0] * (1.0 - eps) + centroid[0] * eps,
+                            local_pos[1] * (1.0 - eps) + centroid[1] * eps,
+                            local_pos[2] * (1.0 - eps) + centroid[2] * eps,
+                        ];
+                        element.calculate_stress_strain_at_local_coords(
+                            &d_matrix,
+                            &u_el,
+                            &project.mesh,
+                            shifted[0],
+                            shifted[1],
+                            shifted[2],
+                        )?
+                    }
+                    Err(e) => return Err(e),
+                };
 
                 let mut strain_mech = strain_total;
                 let t_curr_node = t_curr_el[i];
@@ -346,18 +383,20 @@ impl StaticStep {
                     }
                 }
 
-                let (_, stress, _) =
+                // If we used fallback, we should ideally recompute stress with updated strain_mech
+                // but update_state for linear elasticity is just stress = D * strain.
+                // However, material.update_state might be non-linear.
+                // For now, if we had to fallback, the stress returned by calculate_stress_strain_at_local_coords
+                // was using total strain. Let's re-calculate stress from strain_mech.
+                let (_, stress_mech, _) =
                     material.update_state(t_curr_node, &strain_mech, &avg_state, 0.0)?;
 
                 let current_stress = nodal_stress.data.entry(node_id).or_insert(vec![0.0; 6]);
                 let current_strain = nodal_strain.data.entry(node_id).or_insert(vec![0.0; 6]);
                 for j in 0..6 {
-                    current_stress[j] += stress[j];
+                    current_stress[j] += stress_mech[j];
                     current_strain[j] += strain_mech[j];
                 }
-            }
-
-            for &node_id in node_ids {
                 *node_element_count.entry(node_id).or_insert(0) += 1;
             }
         }

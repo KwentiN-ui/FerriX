@@ -226,9 +226,12 @@ impl Element {
             let (_, dn_local) = self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
-            let inv_j = jacobian
-                .try_inverse()
-                .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+            let inv_j = jacobian.try_inverse().ok_or_else(|| {
+                FerrixError::NumericalError(format!(
+                    "Singular Jacobian in element {}",
+                    self.get_id().0
+                ))
+            })?;
             let dn_global = inv_j * dn_local;
             let weight = det_j.abs() * gp.weight;
 
@@ -284,9 +287,12 @@ impl Element {
                 self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
-            let inv_j = jacobian
-                .try_inverse()
-                .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+            let inv_j = jacobian.try_inverse().ok_or_else(|| {
+                FerrixError::NumericalError(format!(
+                    "Singular Jacobian in element {}",
+                    self.get_id().0
+                ))
+            })?;
             let dn_global = inv_j * dn_local;
             let weight = det_j.abs() * gp.weight;
 
@@ -419,9 +425,12 @@ impl Element {
                 self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
-            let inv_j = jacobian
-                .try_inverse()
-                .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+            let inv_j = jacobian.try_inverse().ok_or_else(|| {
+                FerrixError::NumericalError(format!(
+                    "Singular Jacobian in element {}",
+                    self.get_id().0
+                ))
+            })?;
             let dn_global = inv_j * dn_local;
             let weight = det_j.abs() * gp.weight;
 
@@ -528,9 +537,12 @@ impl Element {
 
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
-            let inv_j = jacobian
-                .try_inverse()
-                .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+            let inv_j = jacobian.try_inverse().ok_or_else(|| {
+                FerrixError::NumericalError(format!(
+                    "Singular Jacobian in element {}",
+                    self.get_id().0
+                ))
+            })?;
             let dn_global = inv_j * dn_local;
             let weight = det_j.abs() * gp.weight;
 
