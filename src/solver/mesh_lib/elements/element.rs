@@ -29,8 +29,16 @@ pub trait FiniteElement: std::fmt::Debug + Send + Sync {
     /// Returns the VTK cell type code for this element.
     fn vtk_cell_type(&self) -> u8;
     /// Returns the Gauss integration points for this element type.
+    ///
+    /// Each `GaussPoint` contains precomputed shape function values (N) and derivatives (dN)
+    /// to avoid redundant calculations during numerical integration.
     fn integration_points(&self) -> &'static [GaussPoint];
-    /// Computes shape functions (N) and their derivatives (dN) at local coordinates (xi, eta, zeta).
+
+    /// Computes shape functions (N) and their derivatives (dN) at arbitrary local coordinates.
+    ///
+    /// This method is primarily used for post-processing or calculations at non-integration points.
+    /// For numerical integration within solver loops, prefer using the precomputed values in
+    /// `integration_points()`.
     fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (DVector<f64>, DMatrix<f64>);
     /// Returns the local coordinates of the nodes.
     // fn node_local_coords(&self) -> Vec<[f64; 3]>;
@@ -195,6 +203,7 @@ impl Element {
     ///
     /// # Errors
     /// Returns an error if a node is missing from the mesh or if the Jacobian is singular.
+    #[allow(clippy::op_ref)]
     pub fn compute_stiffness(
         &self,
         project: &Project,
@@ -224,7 +233,9 @@ impl Element {
         let mut k_el = DMatrix::<f64>::zeros(num_nodes * 3, num_nodes * 3);
 
         for gp in self.integration_points() {
-            let (_, dn_local) = self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+            // Optimization: Use precomputed shape function derivatives from Gauss point
+            let dn_local = nalgebra::DMatrixView::from_slice(gp.dn, 3, num_nodes);
+
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
             let inv_j = jacobian.try_inverse().ok_or_else(|| {
@@ -247,7 +258,7 @@ impl Element {
     ///
     /// # Errors
     /// Returns `FerrixError` if numerical errors occur or material update fails.
-    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    #[allow(clippy::too_many_arguments, clippy::type_complexity, clippy::op_ref)]
     pub fn compute_stiffness_sdv(
         &self,
         project: &Project,
@@ -284,8 +295,10 @@ impl Element {
         let empty_state = MaterialPointState::default();
 
         for (ip_idx, gp) in self.integration_points().iter().enumerate() {
-            let (n_local, dn_local) =
-                self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+            // Optimization: Use precomputed shape functions and derivatives from Gauss point
+            let n_local = nalgebra::DVectorView::from_slice(gp.n, num_nodes);
+            let dn_local = nalgebra::DMatrixView::from_slice(gp.dn, 3, num_nodes);
+
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
             let inv_j = jacobian.try_inverse().ok_or_else(|| {
@@ -385,7 +398,7 @@ impl Element {
     ///
     /// # Errors
     /// Returns `FerrixError` if numerical errors occur or material update fails.
-    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    #[allow(clippy::too_many_arguments, clippy::type_complexity, clippy::op_ref)]
     pub fn compute_internal_force_sdv(
         &self,
         mesh: &Mesh,
@@ -422,8 +435,10 @@ impl Element {
         let empty_state = MaterialPointState::default();
 
         for (ip_idx, gp) in self.integration_points().iter().enumerate() {
-            let (n_local, dn_local) =
-                self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+            // Optimization: Use precomputed shape functions and derivatives from Gauss point
+            let n_local = nalgebra::DVectorView::from_slice(gp.n, num_nodes);
+            let dn_local = nalgebra::DMatrixView::from_slice(gp.dn, 3, num_nodes);
+
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
             let inv_j = jacobian.try_inverse().ok_or_else(|| {
@@ -490,6 +505,7 @@ impl Element {
     ///
     /// # Errors
     /// Returns an error if node coordinates or temperatures are missing.
+    #[allow(clippy::op_ref)]
     pub fn compute_thermal_force(
         &self,
         project: &Project,
@@ -512,8 +528,9 @@ impl Element {
         }
 
         for gp in self.integration_points() {
-            let (n_local, dn_local) =
-                self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
+            // Optimization: Use precomputed shape functions and derivatives from Gauss point
+            let n_local = nalgebra::DVectorView::from_slice(gp.n, num_nodes);
+            let dn_local = nalgebra::DMatrixView::from_slice(gp.dn, 3, num_nodes);
 
             // Interpolate temperatures at integration point
             let mut t_curr = 0.0;
@@ -566,6 +583,7 @@ impl Element {
     ///
     /// # Errors
     /// Returns an error if numerical errors occur during Jacobian inversion.
+    #[allow(clippy::op_ref)]
     pub fn calculate_stress_strain_at_local_coords(
         &self,
         d_mat: &DMatrix<f64>,
@@ -610,21 +628,44 @@ impl Element {
     ///
     /// # Errors
     /// Returns an error if numerical errors occur during Jacobian inversion.
+    #[allow(clippy::op_ref)]
     pub fn calculate_stress_strain_at_ip(
         &self,
         d_mat: &DMatrix<f64>,
         u_el: &[f64],
         mesh: &Mesh,
-        ip_coords: &GaussPoint,
+        gp: &GaussPoint,
     ) -> Result<(DVector<f64>, DVector<f64>)> {
-        self.calculate_stress_strain_at_local_coords(
-            d_mat,
-            u_el,
-            mesh,
-            ip_coords.coords[0],
-            ip_coords.coords[1],
-            ip_coords.coords[2],
-        )
+        let node_ids = self.get_node_ids();
+        let num_nodes = node_ids.len();
+
+        let mut node_coords = DMatrix::<f64>::zeros(3, num_nodes);
+        for (i, &node_id) in node_ids.iter().enumerate() {
+            let coords = mesh
+                .nodes
+                .get(&node_id)
+                .ok_or(FerrixError::NodeNotFound(node_id))?;
+            node_coords[(0, i)] = coords.x;
+            node_coords[(1, i)] = coords.y;
+            node_coords[(2, i)] = coords.z;
+        }
+
+        // Optimization: Use precomputed shape function derivatives from Gauss point
+        let dn_local = nalgebra::DMatrixView::from_slice(gp.dn, 3, num_nodes);
+
+        let jacobian = &dn_local * node_coords.transpose();
+        let inv_j = jacobian
+            .try_inverse()
+            .ok_or_else(|| FerrixError::NumericalError("Singular Jacobian".into()))?;
+        let dn_global = inv_j * dn_local;
+
+        let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
+
+        let u_el_vec = DVector::from_column_slice(u_el);
+        let strain = &b_mat * u_el_vec;
+        let stress = d_mat * &strain;
+
+        Ok((strain, stress))
     }
 }
 
@@ -649,10 +690,17 @@ fn build_b_matrix_internal(dn_global: &DMatrix<f64>, num_nodes: usize) -> DMatri
 }
 
 /// Represents a single integration point (Gauss point) within an element.
+///
+/// Contains precomputed shape function values and their derivatives at the point's local coordinates
+/// to minimize calculations during solver iterations.
 #[derive(Debug, Clone, Copy)]
 pub struct GaussPoint {
     /// Local (isoparametric) coordinates of the point.
     pub coords: [f64; 3],
     /// Integration weight associated with the point.
     pub weight: f64,
+    /// Precomputed shape function values (N) at these coordinates.
+    pub n: &'static [f64],
+    /// Precomputed shape function derivatives (dN) at these coordinates (flattened 3xN matrix).
+    pub dn: &'static [f64],
 }
