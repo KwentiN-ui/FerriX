@@ -17,6 +17,7 @@ use crate::solver::solvers::{Solver, direct::DirectSolver, iterative::IterativeS
 use crate::solver::state::SolutionState;
 use crate::solver::step::boundary_conds::{BoundaryCondition, Load};
 use crate::solver::time::SolverTime;
+use rayon::prelude::*;
 use sprs::CsMat;
 use std::collections::HashMap;
 
@@ -288,126 +289,138 @@ impl StaticStep {
         let mut nodal_strain = NodalResult::new("E", FieldType::Strain);
         let mut node_element_count: HashMap<NodeId, usize> = HashMap::new();
 
-        for element in project.mesh.elements.values() {
-            let elem_id = element.get_id();
-            let node_ids = element.get_node_ids();
-            let mut u_el = Vec::new();
-            let mut t_init_el = Vec::new();
-            let mut t_curr_el = Vec::new();
-            for &node_id in node_ids {
-                if let Some(idx) = project.mesh.get_index_for_node_id(node_id) {
-                    let dof_start = idx * 3;
-                    u_el.extend_from_slice(&solution_state.displacements[dof_start..dof_start + 3]);
-                    t_init_el.push(solution_state.initial_temperatures[idx]);
-                    t_curr_el.push(solution_state.temperatures[idx]);
-                }
-            }
-
-            let material_idx = project.element_materials.get(&elem_id).ok_or_else(|| {
-                FerrixError::InvalidModelState(format!("Element {elem_id} has no material"))
-            })?;
-            let material = &project.materials[*material_idx];
-
-            let t_avg = t_curr_el.iter().sum::<f64>() / t_curr_el.len() as f64;
-            let d_matrix = material.build_elastic_d_matrix(t_avg)?;
-
-            let node_local_coords = element.node_local_coords();
-            let num_ips = element.integration_points().len();
-
-            // Calculate centroid for fallback
-            let mut centroid = [0.0; 3];
-            for p in node_local_coords {
-                centroid[0] += p[0];
-                centroid[1] += p[1];
-                centroid[2] += p[2];
-            }
-            let n_nodes = node_local_coords.len() as f64;
-            let centroid = [
-                centroid[0] / n_nodes,
-                centroid[1] / n_nodes,
-                centroid[2] / n_nodes,
-            ];
-
-            for (i, &node_id) in node_ids.iter().enumerate() {
-                let local_pos = node_local_coords[i];
-                let res = element.calculate_stress_strain_at_local_coords(
-                    &d_matrix,
-                    &u_el,
-                    &project.mesh,
-                    local_pos[0],
-                    local_pos[1],
-                    local_pos[2],
-                );
-
-                let (strain_total, _stress) = match res {
-                    Ok(s) => s,
-                    Err(FerrixError::NumericalError(ref msg))
-                        if msg.contains("Singular Jacobian") =>
-                    {
-                        // Fallback: shift slightly towards element center
-                        let eps = 1e-3;
-                        let shifted = [
-                            local_pos[0] * (1.0 - eps) + centroid[0] * eps,
-                            local_pos[1] * (1.0 - eps) + centroid[1] * eps,
-                            local_pos[2] * (1.0 - eps) + centroid[2] * eps,
-                        ];
-                        element.calculate_stress_strain_at_local_coords(
-                            &d_matrix,
-                            &u_el,
-                            &project.mesh,
-                            shifted[0],
-                            shifted[1],
-                            shifted[2],
-                        )?
+        let results: Vec<_> = project
+            .mesh
+            .elements
+            .values()
+            .par_bridge()
+            .map(|element| {
+                let elem_id = element.get_id();
+                let node_ids = element.get_node_ids();
+                let mut u_el = Vec::new();
+                let mut t_init_el = Vec::new();
+                let mut t_curr_el = Vec::new();
+                for &node_id in node_ids {
+                    if let Some(idx) = project.mesh.get_index_for_node_id(node_id) {
+                        let dof_start = idx * 3;
+                        u_el.extend_from_slice(
+                            &solution_state.displacements[dof_start..dof_start + 3],
+                        );
+                        t_init_el.push(solution_state.initial_temperatures[idx]);
+                        t_curr_el.push(solution_state.temperatures[idx]);
                     }
-                    Err(e) => return Err(e),
-                };
-
-                let mut strain_mech = strain_total;
-                let t_curr_node = t_curr_el[i];
-                let t_init_node = t_init_el[i];
-
-                if let Some(alpha) = material.thermal_expansion(t_curr_node) {
-                    let t_ref = material.reference_temperature();
-                    let th_strain_curr = alpha * (t_curr_node - t_ref);
-
-                    let alpha_init = material.thermal_expansion(t_init_node).unwrap_or(alpha);
-                    let th_strain_init = alpha_init * (t_init_node - t_ref);
-
-                    let delta_th_strain = th_strain_curr - th_strain_init;
-
-                    strain_mech[0] -= delta_th_strain;
-                    strain_mech[1] -= delta_th_strain;
-                    strain_mech[2] -= delta_th_strain;
                 }
 
-                let mut avg_state = MaterialPointState::default();
-                let num_sdvs = material.num_state_variables();
-                if num_sdvs > 0 {
-                    avg_state.variables = vec![0.0; num_sdvs];
-                    let elem_state = solution_state.material_states.get(&elem_id);
-                    if let Some(es) = elem_state {
-                        for ip_idx in 0..num_ips {
-                            for sdv_idx in 0..num_sdvs {
-                                avg_state[sdv_idx] += es[ip_idx][sdv_idx] / num_ips as f64;
+                let material_idx = project.element_materials.get(&elem_id).ok_or_else(|| {
+                    FerrixError::InvalidModelState(format!("Element {elem_id} has no material"))
+                })?;
+                let material = &project.materials[*material_idx];
+
+                let t_avg = t_curr_el.iter().sum::<f64>() / t_curr_el.len() as f64;
+                let d_matrix = material.build_elastic_d_matrix(t_avg)?;
+
+                let node_local_coords = element.node_local_coords();
+                let num_ips = element.integration_points().len();
+
+                // Calculate centroid for fallback
+                let mut centroid = [0.0; 3];
+                for p in node_local_coords {
+                    centroid[0] += p[0];
+                    centroid[1] += p[1];
+                    centroid[2] += p[2];
+                }
+                let n_nodes = node_local_coords.len() as f64;
+                let centroid = [
+                    centroid[0] / n_nodes,
+                    centroid[1] / n_nodes,
+                    centroid[2] / n_nodes,
+                ];
+
+                let mut element_results = Vec::new();
+
+                for (i, &node_id) in node_ids.iter().enumerate() {
+                    let local_pos = node_local_coords[i];
+                    let res = element.calculate_stress_strain_at_local_coords(
+                        &d_matrix,
+                        &u_el,
+                        &project.mesh,
+                        local_pos[0],
+                        local_pos[1],
+                        local_pos[2],
+                    );
+
+                    let (strain_total, _stress) = match res {
+                        Ok(s) => s,
+                        Err(FerrixError::NumericalError(ref msg))
+                            if msg.contains("Singular Jacobian") =>
+                        {
+                            // Fallback: shift slightly towards element center
+                            let eps = 1e-3;
+                            let shifted = [
+                                local_pos[0] * (1.0 - eps) + centroid[0] * eps,
+                                local_pos[1] * (1.0 - eps) + centroid[1] * eps,
+                                local_pos[2] * (1.0 - eps) + centroid[2] * eps,
+                            ];
+                            element.calculate_stress_strain_at_local_coords(
+                                &d_matrix,
+                                &u_el,
+                                &project.mesh,
+                                shifted[0],
+                                shifted[1],
+                                shifted[2],
+                            )?
+                        }
+                        Err(e) => return Err(e),
+                    };
+
+                    let mut strain_mech = strain_total;
+                    let t_curr_node = t_curr_el[i];
+                    let t_init_node = t_init_el[i];
+
+                    if let Some(alpha) = material.thermal_expansion(t_curr_node) {
+                        let t_ref = material.reference_temperature();
+                        let th_strain_curr = alpha * (t_curr_node - t_ref);
+
+                        let alpha_init = material.thermal_expansion(t_init_node).unwrap_or(alpha);
+                        let th_strain_init = alpha_init * (t_init_node - t_ref);
+
+                        let delta_th_strain = th_strain_curr - th_strain_init;
+
+                        strain_mech[0] -= delta_th_strain;
+                        strain_mech[1] -= delta_th_strain;
+                        strain_mech[2] -= delta_th_strain;
+                    }
+
+                    let mut avg_state = MaterialPointState::default();
+                    let num_sdvs = material.num_state_variables();
+                    if num_sdvs > 0 {
+                        avg_state.variables = vec![0.0; num_sdvs];
+                        let elem_state = solution_state.material_states.get(&elem_id);
+                        if let Some(es) = elem_state {
+                            for ip_idx in 0..num_ips {
+                                for sdv_idx in 0..num_sdvs {
+                                    avg_state[sdv_idx] += es[ip_idx][sdv_idx] / num_ips as f64;
+                                }
                             }
                         }
                     }
+
+                    let (_, stress_mech, _) =
+                        material.update_state(t_curr_node, &strain_mech, &avg_state, 0.0)?;
+
+                    element_results.push((node_id, stress_mech, strain_mech));
                 }
+                Ok(element_results)
+            })
+            .collect::<Result<Vec<_>>>()?;
 
-                // If we used fallback, we should ideally recompute stress with updated strain_mech
-                // but update_state for linear elasticity is just stress = D * strain.
-                // However, material.update_state might be non-linear.
-                // For now, if we had to fallback, the stress returned by calculate_stress_strain_at_local_coords
-                // was using total strain. Let's re-calculate stress from strain_mech.
-                let (_, stress_mech, _) =
-                    material.update_state(t_curr_node, &strain_mech, &avg_state, 0.0)?;
-
+        for element_results in results {
+            for (node_id, stress, strain) in element_results {
                 let current_stress = nodal_stress.data.entry(node_id).or_insert(vec![0.0; 6]);
                 let current_strain = nodal_strain.data.entry(node_id).or_insert(vec![0.0; 6]);
                 for j in 0..6 {
-                    current_stress[j] += stress_mech[j];
-                    current_strain[j] += strain_mech[j];
+                    current_stress[j] += stress[j];
+                    current_strain[j] += strain[j];
                 }
                 *node_element_count.entry(node_id).or_insert(0) += 1;
             }
