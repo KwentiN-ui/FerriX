@@ -96,26 +96,32 @@ impl StaticStep {
             // material_states_curr will store the SDVs calculated during the iteration
             let mut material_states_curr = states_inc_start.clone();
 
+            // Pre-calculate constant forces for this increment
+            let mut f_ext = vec![0.0; num_dofs];
+            for load in &self.loads {
+                if let Some(idx) = project.mesh.get_index_for_node_id(load.node_id()) {
+                    let global_dof = idx * 3 + load.dof();
+                    f_ext[global_dof] += load.value(timer, step_id);
+                }
+            }
+
+            // Add Thermal Forces (constant per increment in StaticStep)
+            let f_th = Assembler::assemble_thermal_force(
+                project,
+                &solution_state.initial_temperatures,
+                &solution_state.temperatures,
+            )?;
+            for i in 0..num_dofs {
+                f_ext[i] += f_th[i];
+            }
+
+            // Check if analysis is purely linear (small strains + linear materials)
+            let all_materials_linear = project.materials.iter().all(|m| m.is_linear());
+            let is_linear_analysis = !self.nlgeom && all_materials_linear;
+
             for iter in 0..15 {
                 // Max NR iterations
-                // 1. Calculate External Forces F_ext
-                let mut f_ext = vec![0.0; num_dofs];
-                for load in &self.loads {
-                    if let Some(idx) = project.mesh.get_index_for_node_id(load.node_id()) {
-                        let global_dof = idx * 3 + load.dof();
-                        f_ext[global_dof] += load.value(timer, step_id);
-                    }
-                }
-
-                // Add Thermal Forces
-                let f_th = Assembler::assemble_thermal_force(
-                    project,
-                    &solution_state.initial_temperatures,
-                    &solution_state.temperatures,
-                )?;
-                for i in 0..num_dofs {
-                    f_ext[i] += f_th[i];
-                }
+                // 1. Calculate External Forces F_ext (moved out of loop)
 
                 // 2. Calculate Internal Forces F_int and Updated States
                 let u_conf = if self.nlgeom {
@@ -206,6 +212,12 @@ impl StaticStep {
                 // 8. Update Displacement
                 for i in 0..num_dofs {
                     u_curr[i] += du[i];
+                }
+
+                // If purely linear, one solve is enough
+                if is_linear_analysis {
+                    converged = true;
+                    break;
                 }
             }
 

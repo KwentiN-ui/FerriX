@@ -163,6 +163,11 @@ pub trait Material: std::fmt::Debug + Send + Sync {
         0
     }
 
+    /// Returns true if the material is purely linear elastic.
+    fn is_linear(&self) -> bool {
+        true
+    }
+
     /// Updates the state-dependent variables and returns the tangent stiffness and stress.
     ///
     /// This is a simplified version of UMAT.
