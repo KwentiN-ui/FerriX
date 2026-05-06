@@ -236,30 +236,6 @@ pub fn shape_func_c3d20(xi: f64, et: f64, ze: f64) -> (SVector<f64, 20>, SMatrix
     (n, dn)
 }
 
-/// Legacy function for `compute_stiffness_sdv` glue code
-#[must_use]
-pub fn c3d20_gauss() -> Vec<GaussPoint> {
-    let mut gps = Vec::with_capacity(27);
-    let pts = [-0.774_596_669_241_483, 0.0, 0.774_596_669_241_483];
-    let wts = [
-        0.555_555_555_555_555_6,
-        0.888_888_888_888_888_8,
-        0.555_555_555_555_555_6,
-    ];
-
-    for i in 0..3 {
-        for j in 0..3 {
-            for k in 0..3 {
-                gps.push(GaussPoint {
-                    coords: [pts[i], pts[j], pts[k]],
-                    weight: wts[i] * wts[j] * wts[k],
-                });
-            }
-        }
-    }
-    gps
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
