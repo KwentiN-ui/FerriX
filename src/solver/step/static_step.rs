@@ -304,7 +304,7 @@ impl StaticStep {
 
             // Calculate centroid for fallback
             let mut centroid = [0.0; 3];
-            for p in &node_local_coords {
+            for p in node_local_coords {
                 centroid[0] += p[0];
                 centroid[1] += p[1];
                 centroid[2] += p[2];

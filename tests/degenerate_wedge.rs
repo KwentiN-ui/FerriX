@@ -9,7 +9,7 @@ fn test_degenerate_wedge_jacobian() {
     // Bottom triangle: (0,0,0), (1,0,0), (0,1,0)
     // Top triangle:    (0,0,1), (1,0,1), (0,1,1)
     // Collapse 2 and 5 to (1,0,0.5)
-    let node_coords = vec![
+    let node_coords = [
         [0.0, 0.0, 0.0], // 1
         [1.0, 0.0, 0.5], // 2 (collapsed with 5)
         [0.0, 1.0, 0.0], // 3
@@ -38,7 +38,7 @@ fn test_degenerate_wedge_jacobian() {
     };
 
     // Check Jacobian at integration points
-    for gp in elem.integration_points().iter() {
+    for gp in elem.integration_points() {
         let (_, dn_local) = elem.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
         let jacobian = &dn_local * coords_mat.transpose();
         let det = jacobian.determinant();

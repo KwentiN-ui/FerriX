@@ -9,6 +9,13 @@ const C3D4_GAUSS: [GaussPoint; 1] = [GaussPoint {
     weight: 1.0 / 6.0,
 }];
 
+const C3D4_LOCAL_COORDS: [[f64; 3]; 4] = [
+    [0.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0],
+];
+
 /// Linear tetrahedron (C3D4).
 #[derive(Debug, Clone)]
 pub struct C3D4 {
@@ -52,17 +59,13 @@ impl FiniteElement for C3D4 {
         )
     }
 
-    fn node_local_coords(&self) -> Vec<[f64; 3]> {
-        vec![
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ]
+    fn node_local_coords(&self) -> &'static [[f64; 3]] {
+        &C3D4_LOCAL_COORDS
     }
 }
 
 /// Legacy function for `compute_stiffness_sdv` glue code
+/// TODO REMOVE??
 #[must_use]
 pub fn shape_func_c3d4(xi: f64, eta: f64, zeta: f64) -> (SVector<f64, 4>, SMatrix<f64, 3, 4>) {
     let n = SVector::<f64, 4>::new(1.0 - xi - eta - zeta, xi, eta, zeta);

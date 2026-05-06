@@ -40,19 +40,8 @@ impl FiniteElement for C3D10 {
         )
     }
 
-    fn node_local_coords(&self) -> Vec<[f64; 3]> {
-        vec![
-            [0.0, 0.0, 0.0], // Node 1
-            [1.0, 0.0, 0.0], // Node 2
-            [0.0, 1.0, 0.0], // Node 3
-            [0.0, 0.0, 1.0], // Node 4
-            [0.5, 0.0, 0.0], // Node 5 (mid 1-2)
-            [0.5, 0.5, 0.0], // Node 6 (mid 2-3)
-            [0.0, 0.5, 0.0], // Node 7 (mid 3-1)
-            [0.0, 0.0, 0.5], // Node 8 (mid 1-4)
-            [0.5, 0.0, 0.5], // Node 9 (mid 2-4)
-            [0.0, 0.5, 0.5], // Node 10 (mid 3-4)
-        ]
+    fn node_local_coords(&self) -> &'static [[f64; 3]] {
+        &C3D10_LOCAL_COORDS
     }
 }
 
@@ -113,8 +102,21 @@ pub fn shape_func_c3d10(xi: f64, et: f64, ze: f64) -> (SVector<f64, 10>, SMatrix
     (n, dn)
 }
 
+const C3D10_LOCAL_COORDS: [[f64; 3]; 10] = [
+    [0.0, 0.0, 0.0], // Node 1
+    [1.0, 0.0, 0.0], // Node 2
+    [0.0, 1.0, 0.0], // Node 3
+    [0.0, 0.0, 1.0], // Node 4
+    [0.5, 0.0, 0.0], // Node 5 (mid 1-2)
+    [0.5, 0.5, 0.0], // Node 6 (mid 2-3)
+    [0.0, 0.5, 0.0], // Node 7 (mid 3-1)
+    [0.0, 0.0, 0.5], // Node 8 (mid 1-4)
+    [0.5, 0.0, 0.5], // Node 9 (mid 2-4)
+    [0.0, 0.5, 0.5], // Node 10 (mid 3-4)
+];
+
 /// Gaussian integration points for C3D10
-pub const C3D10_GAUSS: [GaussPoint; 4] = [
+const C3D10_GAUSS: [GaussPoint; 4] = [
     GaussPoint {
         coords: [
             0.138_196_601_125_011,

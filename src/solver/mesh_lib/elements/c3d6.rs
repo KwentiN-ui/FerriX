@@ -40,15 +40,8 @@ impl FiniteElement for C3D6 {
         )
     }
 
-    fn node_local_coords(&self) -> Vec<[f64; 3]> {
-        vec![
-            [0.0, 0.0, -1.0], // Node 1
-            [1.0, 0.0, -1.0], // Node 2
-            [0.0, 1.0, -1.0], // Node 3
-            [0.0, 0.0, 1.0],  // Node 4
-            [1.0, 0.0, 1.0],  // Node 5
-            [0.0, 1.0, 1.0],  // Node 6
-        ]
+    fn node_local_coords(&self) -> &'static [[f64; 3]] {
+        &C3D6_LOCAL_COORDS
     }
 }
 
@@ -113,6 +106,15 @@ const C3D6_GAUSS: [GaussPoint; 2] = [
     },
 ];
 
+const C3D6_LOCAL_COORDS: [[f64; 3]; 6] = [
+    [0.0, 0.0, -1.0], // Node 1
+    [1.0, 0.0, -1.0], // Node 2
+    [0.0, 1.0, -1.0], // Node 3
+    [0.0, 0.0, 1.0],  // Node 4
+    [1.0, 0.0, 1.0],  // Node 5
+    [0.0, 1.0, 1.0],  // Node 6
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_shape_func_nodes() {
-        let local_coords = vec![
+        let local_coords = [
             [0.0, 0.0, -1.0],
             [1.0, 0.0, -1.0],
             [0.0, 1.0, -1.0],

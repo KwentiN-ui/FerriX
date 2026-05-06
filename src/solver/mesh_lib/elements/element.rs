@@ -33,7 +33,8 @@ pub trait FiniteElement: std::fmt::Debug + Send + Sync {
     /// Computes shape functions (N) and their derivatives (dN) at local coordinates (xi, eta, zeta).
     fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (DVector<f64>, DMatrix<f64>);
     /// Returns the local coordinates of the nodes.
-    fn node_local_coords(&self) -> Vec<[f64; 3]>;
+    // fn node_local_coords(&self) -> Vec<[f64; 3]>;
+    fn node_local_coords(&self) -> &'static [[f64; 3]];
 }
 
 /// Supported finite element types.
@@ -186,7 +187,7 @@ impl Element {
 
     /// Returns the local coordinates of the nodes.
     #[must_use]
-    pub fn node_local_coords(&self) -> Vec<[f64; 3]> {
+    pub fn node_local_coords(&self) -> &'static [[f64; 3]] {
         self.inner().node_local_coords()
     }
 
@@ -222,7 +223,7 @@ impl Element {
 
         let mut k_el = DMatrix::<f64>::zeros(num_nodes * 3, num_nodes * 3);
 
-        for gp in self.integration_points().iter() {
+        for gp in self.integration_points() {
             let (_, dn_local) = self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
@@ -510,7 +511,7 @@ impl Element {
             node_coords.set_column(i, &nalgebra::Vector3::new(coords.x, coords.y, coords.z));
         }
 
-        for gp in self.integration_points().iter() {
+        for gp in self.integration_points() {
             let (n_local, dn_local) =
                 self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
 
