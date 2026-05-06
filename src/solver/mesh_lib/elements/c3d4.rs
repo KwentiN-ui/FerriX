@@ -4,6 +4,11 @@ use crate::solver::ids::{ElementId, NodeId};
 use crate::solver::mesh_lib::elements::element::{FiniteElement, GaussPoint};
 use nalgebra::{DMatrix, DVector, SMatrix, SVector};
 
+const C3D4_GAUSS: [GaussPoint; 1] = [GaussPoint {
+    coords: [0.25, 0.25, 0.25],
+    weight: 1.0 / 6.0,
+}];
+
 /// Linear tetrahedron (C3D4).
 #[derive(Debug, Clone)]
 pub struct C3D4 {
@@ -28,11 +33,8 @@ impl FiniteElement for C3D4 {
         10 // VTK_TETRA
     }
 
-    fn integration_points(&self) -> Vec<GaussPoint> {
-        vec![GaussPoint {
-            coords: [0.25, 0.25, 0.25],
-            weight: 1.0 / 6.0,
-        }]
+    fn integration_points(&self) -> &'static [GaussPoint] {
+        &C3D4_GAUSS
     }
 
     fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (DVector<f64>, DMatrix<f64>) {

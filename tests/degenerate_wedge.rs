@@ -38,7 +38,7 @@ fn test_degenerate_wedge_jacobian() {
     };
 
     // Check Jacobian at integration points
-    for gp in elem.integration_points() {
+    for gp in elem.integration_points().iter() {
         let (_, dn_local) = elem.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
         let jacobian = &dn_local * coords_mat.transpose();
         let det = jacobian.determinant();

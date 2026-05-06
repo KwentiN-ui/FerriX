@@ -29,7 +29,7 @@ pub trait FiniteElement: std::fmt::Debug + Send + Sync {
     /// Returns the VTK cell type code for this element.
     fn vtk_cell_type(&self) -> u8;
     /// Returns the Gauss integration points for this element type.
-    fn integration_points(&self) -> Vec<GaussPoint>;
+    fn integration_points(&self) -> &'static [GaussPoint];
     /// Computes shape functions (N) and their derivatives (dN) at local coordinates (xi, eta, zeta).
     fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (DVector<f64>, DMatrix<f64>);
     /// Returns the local coordinates of the nodes.
@@ -174,7 +174,7 @@ impl Element {
 
     /// Returns the Gauss integration points for this element type.
     #[must_use]
-    pub fn integration_points(&self) -> Vec<GaussPoint> {
+    pub fn integration_points(&self) -> &'static [GaussPoint] {
         self.inner().integration_points()
     }
 
@@ -222,7 +222,7 @@ impl Element {
 
         let mut k_el = DMatrix::<f64>::zeros(num_nodes * 3, num_nodes * 3);
 
-        for gp in self.integration_points() {
+        for gp in self.integration_points().iter() {
             let (_, dn_local) = self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
@@ -510,7 +510,7 @@ impl Element {
             node_coords.set_column(i, &nalgebra::Vector3::new(coords.x, coords.y, coords.z));
         }
 
-        for gp in self.integration_points() {
+        for gp in self.integration_points().iter() {
             let (n_local, dn_local) =
                 self.shape_functions(gp.coords[0], gp.coords[1], gp.coords[2]);
 

@@ -28,8 +28,8 @@ impl FiniteElement for C3D6 {
         13 // VTK_WEDGE
     }
 
-    fn integration_points(&self) -> Vec<GaussPoint> {
-        c3d6_gauss()
+    fn integration_points(&self) -> &'static [GaussPoint] {
+        &C3D6_GAUSS
     }
 
     fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (DVector<f64>, DMatrix<f64>) {
@@ -94,28 +94,24 @@ pub fn shape_func_c3d6(xi: f64, et: f64, ze: f64) -> (SVector<f64, 6>, SMatrix<f
 }
 
 /// Gaussian integration points for C3D6
-#[must_use]
-pub fn c3d6_gauss() -> Vec<GaussPoint> {
-    // CalculiX uses 2-point integration for C3D6 (gauss3d7)
-    vec![
-        GaussPoint {
-            coords: [
-                0.333_333_333_333_333,
-                0.333_333_333_333_333,
-                -0.577_350_269_189_626,
-            ],
-            weight: 0.5,
-        },
-        GaussPoint {
-            coords: [
-                0.333_333_333_333_333,
-                0.333_333_333_333_333,
-                0.577_350_269_189_626,
-            ],
-            weight: 0.5,
-        },
-    ]
-}
+const C3D6_GAUSS: [GaussPoint; 2] = [
+    GaussPoint {
+        coords: [
+            0.333_333_333_333_333,
+            0.333_333_333_333_333,
+            -0.577_350_269_189_626,
+        ],
+        weight: 0.5,
+    },
+    GaussPoint {
+        coords: [
+            0.333_333_333_333_333,
+            0.333_333_333_333_333,
+            0.577_350_269_189_626,
+        ],
+        weight: 0.5,
+    },
+];
 
 #[cfg(test)]
 mod tests {

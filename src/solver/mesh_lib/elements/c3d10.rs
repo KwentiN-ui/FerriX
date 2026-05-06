@@ -28,8 +28,8 @@ impl FiniteElement for C3D10 {
         24 // VTK_QUADRATIC_TETRA
     }
 
-    fn integration_points(&self) -> Vec<GaussPoint> {
-        c3d10_gauss()
+    fn integration_points(&self) -> &'static [GaussPoint] {
+        &C3D10_GAUSS
     }
 
     fn shape_functions(&self, xi: f64, eta: f64, zeta: f64) -> (DVector<f64>, DMatrix<f64>) {
@@ -114,44 +114,40 @@ pub fn shape_func_c3d10(xi: f64, et: f64, ze: f64) -> (SVector<f64, 10>, SMatrix
 }
 
 /// Gaussian integration points for C3D10
-#[must_use]
-pub fn c3d10_gauss() -> Vec<GaussPoint> {
-    // CalculiX uses 4-point integration for C3D10 (gauss3d5)
-    vec![
-        GaussPoint {
-            coords: [
-                0.138_196_601_125_011,
-                0.138_196_601_125_011,
-                0.138_196_601_125_011,
-            ],
-            weight: 0.041_666_666_666_667,
-        },
-        GaussPoint {
-            coords: [
-                0.585_410_196_624_968,
-                0.138_196_601_125_011,
-                0.138_196_601_125_011,
-            ],
-            weight: 0.041_666_666_666_667,
-        },
-        GaussPoint {
-            coords: [
-                0.138_196_601_125_011,
-                0.585_410_196_624_968,
-                0.138_196_601_125_011,
-            ],
-            weight: 0.041_666_666_666_667,
-        },
-        GaussPoint {
-            coords: [
-                0.138_196_601_125_011,
-                0.138_196_601_125_011,
-                0.585_410_196_624_968,
-            ],
-            weight: 0.041_666_666_666_667,
-        },
-    ]
-}
+pub const C3D10_GAUSS: [GaussPoint; 4] = [
+    GaussPoint {
+        coords: [
+            0.138_196_601_125_011,
+            0.138_196_601_125_011,
+            0.138_196_601_125_011,
+        ],
+        weight: 0.041_666_666_666_667,
+    },
+    GaussPoint {
+        coords: [
+            0.585_410_196_624_968,
+            0.138_196_601_125_011,
+            0.138_196_601_125_011,
+        ],
+        weight: 0.041_666_666_666_667,
+    },
+    GaussPoint {
+        coords: [
+            0.138_196_601_125_011,
+            0.585_410_196_624_968,
+            0.138_196_601_125_011,
+        ],
+        weight: 0.041_666_666_666_667,
+    },
+    GaussPoint {
+        coords: [
+            0.138_196_601_125_011,
+            0.138_196_601_125_011,
+            0.585_410_196_624_968,
+        ],
+        weight: 0.041_666_666_666_667,
+    },
+];
 
 #[cfg(test)]
 mod tests {

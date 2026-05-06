@@ -4,6 +4,46 @@ use crate::solver::ids::{ElementId, NodeId};
 use crate::solver::mesh_lib::elements::element::{FiniteElement, GaussPoint};
 use nalgebra::{DMatrix, DVector, SMatrix, SVector};
 
+const C3D20_GAUSS: [GaussPoint; 27] = compute_gauss();
+
+/// Compiletime creation of Gauss-Points
+const fn compute_gauss() -> [GaussPoint; 27] {
+    let pts = [-0.774_596_669_241_483, 0.0, 0.774_596_669_241_483];
+    let wts = [
+        0.555_555_555_555_555_6,
+        0.888_888_888_888_888_8,
+        0.555_555_555_555_555_6,
+    ];
+
+    // Initialisiere ein Array mit Platzhalter-Werten
+    let mut gps = [GaussPoint {
+        coords: [0.0; 3],
+        weight: 0.0,
+    }; 27];
+    let mut index = 0;
+
+    // while-Schleifen sind in const-Kontexten problemlos möglich
+    let mut i = 0;
+    while i < 3 {
+        let mut j = 0;
+        while j < 3 {
+            let mut k = 0;
+            while k < 3 {
+                gps[index] = GaussPoint {
+                    coords: [pts[i], pts[j], pts[k]],
+                    weight: wts[i] * wts[j] * wts[k],
+                };
+                index += 1;
+                k += 1;
+            }
+            j += 1;
+        }
+        i += 1;
+    }
+
+    gps
+}
+
 /// Quadratic hexahedron (C3D20).
 #[derive(Debug, Clone)]
 pub struct C3D20 {
@@ -28,26 +68,8 @@ impl FiniteElement for C3D20 {
         25 // VTK_QUADRATIC_HEXAHEDRON
     }
 
-    fn integration_points(&self) -> Vec<GaussPoint> {
-        let mut gps = Vec::with_capacity(27);
-        let pts = [-0.774_596_669_241_483, 0.0, 0.774_596_669_241_483];
-        let wts = [
-            0.555_555_555_555_555_6,
-            0.888_888_888_888_888_8,
-            0.555_555_555_555_555_6,
-        ];
-
-        for i in 0..3 {
-            for j in 0..3 {
-                for k in 0..3 {
-                    gps.push(GaussPoint {
-                        coords: [pts[i], pts[j], pts[k]],
-                        weight: wts[i] * wts[j] * wts[k],
-                    });
-                }
-            }
-        }
-        gps
+    fn integration_points(&self) -> &'static [GaussPoint] {
+        &C3D20_GAUSS
     }
 
     fn shape_functions(&self, xi: f64, et: f64, ze: f64) -> (DVector<f64>, DMatrix<f64>) {
