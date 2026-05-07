@@ -238,6 +238,12 @@ impl Element {
 
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
+            if det_j <= 0.0 {
+                return Err(FerrixError::NumericalError(format!(
+                    "Negative or singular Jacobian ({det_j:.3e}) in element {}. Check node ordering!",
+                    self.get_id().0
+                )));
+            }
             let inv_j = jacobian.try_inverse().ok_or_else(|| {
                 FerrixError::NumericalError(format!(
                     "Singular Jacobian in element {}",
@@ -245,7 +251,7 @@ impl Element {
                 ))
             })?;
             let dn_global = inv_j * dn_local;
-            let weight = det_j.abs() * gp.weight;
+            let weight = det_j * gp.weight;
 
             let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
             k_el.add_assign(&(b_mat.transpose() * d_mat * b_mat * weight));
@@ -301,6 +307,12 @@ impl Element {
 
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
+            if det_j <= 0.0 {
+                return Err(FerrixError::NumericalError(format!(
+                    "Negative or singular Jacobian ({det_j:.3e}) in element {}. Check node ordering!",
+                    self.get_id().0
+                )));
+            }
             let inv_j = jacobian.try_inverse().ok_or_else(|| {
                 FerrixError::NumericalError(format!(
                     "Singular Jacobian in element {}",
@@ -308,7 +320,7 @@ impl Element {
                 ))
             })?;
             let dn_global = inv_j * dn_local;
-            let weight = det_j.abs() * gp.weight;
+            let weight = det_j * gp.weight;
 
             let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
 
@@ -441,6 +453,12 @@ impl Element {
 
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
+            if det_j <= 0.0 {
+                return Err(FerrixError::NumericalError(format!(
+                    "Negative or singular Jacobian ({det_j:.3e}) in element {}. Check node ordering!",
+                    self.get_id().0
+                )));
+            }
             let inv_j = jacobian.try_inverse().ok_or_else(|| {
                 FerrixError::NumericalError(format!(
                     "Singular Jacobian in element {}",
@@ -448,7 +466,7 @@ impl Element {
                 ))
             })?;
             let dn_global = inv_j * dn_local;
-            let weight = det_j.abs() * gp.weight;
+            let weight = det_j * gp.weight;
 
             let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
 
@@ -555,6 +573,12 @@ impl Element {
 
             let jacobian = &dn_local * node_coords.transpose();
             let det_j = jacobian.determinant();
+            if det_j <= 0.0 {
+                return Err(FerrixError::NumericalError(format!(
+                    "Negative or singular Jacobian ({det_j:.3e}) in element {}. Check node ordering!",
+                    self.get_id().0
+                )));
+            }
             let inv_j = jacobian.try_inverse().ok_or_else(|| {
                 FerrixError::NumericalError(format!(
                     "Singular Jacobian in element {}",
@@ -562,7 +586,7 @@ impl Element {
                 ))
             })?;
             let dn_global = inv_j * dn_local;
-            let weight = det_j.abs() * gp.weight;
+            let weight = det_j * gp.weight;
 
             let b_mat = build_b_matrix_internal(&dn_global, num_nodes);
 

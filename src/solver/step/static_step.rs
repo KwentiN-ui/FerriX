@@ -97,23 +97,13 @@ impl StaticStep {
             // material_states_curr will store the SDVs calculated during the iteration
             let mut material_states_curr = states_inc_start.clone();
 
-            // Pre-calculate constant forces for this increment
+            // Pre-calculate constant applied forces for this increment
             let mut f_ext = vec![0.0; num_dofs];
             for load in &self.loads {
                 if let Some(idx) = project.mesh.get_index_for_node_id(load.node_id()) {
                     let global_dof = idx * 3 + load.dof();
                     f_ext[global_dof] += load.value(timer, step_id);
                 }
-            }
-
-            // Add Thermal Forces (constant per increment in StaticStep)
-            let f_th = Assembler::assemble_thermal_force(
-                project,
-                &solution_state.initial_temperatures,
-                &solution_state.temperatures,
-            )?;
-            for i in 0..num_dofs {
-                f_ext[i] += f_th[i];
             }
 
             // Check if analysis is purely linear (small strains + linear materials)
@@ -215,7 +205,7 @@ impl StaticStep {
                     u_curr[i] += du[i];
                 }
 
-                // If purely linear, one solve is enough
+                // If purely linear, one solve is enough.
                 if is_linear_analysis {
                     converged = true;
                     break;
@@ -297,9 +287,9 @@ impl StaticStep {
             .map(|element| {
                 let elem_id = element.get_id();
                 let node_ids = element.get_node_ids();
-                let mut u_el = Vec::new();
-                let mut t_init_el = Vec::new();
-                let mut t_curr_el = Vec::new();
+                let mut u_el = Vec::with_capacity(node_ids.len() * 3);
+                let mut t_init_el = Vec::with_capacity(node_ids.len());
+                let mut t_curr_el = Vec::with_capacity(node_ids.len());
                 for &node_id in node_ids {
                     if let Some(idx) = project.mesh.get_index_for_node_id(node_id) {
                         let dof_start = idx * 3;

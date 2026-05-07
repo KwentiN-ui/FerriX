@@ -591,7 +591,23 @@ impl<'a> Parser<'a> {
     fn parse_nset(&mut self, line: &str) {
         if let Some(name) = &self.set_name {
             if self.is_generate {
-                // TODO
+                let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+                if parts.len() >= 2 {
+                    let start: usize = parts[0].parse().unwrap_or(0);
+                    let end: usize = parts[1].parse().unwrap_or(0);
+                    let step: usize = if parts.len() > 2 {
+                        parts[2].parse().unwrap_or(1)
+                    } else {
+                        1
+                    };
+                    let ids: Vec<NodeId> = (start..=end).step_by(step).map(NodeId).collect();
+                    self.project
+                        .mesh
+                        .node_sets
+                        .entry(name.clone())
+                        .or_default()
+                        .extend(ids);
+                }
             } else {
                 let ids: Vec<NodeId> = line
                     .split(',')
@@ -612,7 +628,23 @@ impl<'a> Parser<'a> {
     fn parse_elset(&mut self, line: &str) {
         if let Some(name) = &self.set_name {
             if self.is_generate {
-                // TODO
+                let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+                if parts.len() >= 2 {
+                    let start: usize = parts[0].parse().unwrap_or(0);
+                    let end: usize = parts[1].parse().unwrap_or(0);
+                    let step: usize = if parts.len() > 2 {
+                        parts[2].parse().unwrap_or(1)
+                    } else {
+                        1
+                    };
+                    let ids: Vec<ElementId> = (start..=end).step_by(step).map(ElementId).collect();
+                    self.project
+                        .mesh
+                        .element_sets
+                        .entry(name.clone())
+                        .or_default()
+                        .extend(ids);
+                }
             } else {
                 let parts: Vec<ElementId> = line
                     .split(',')
